@@ -27,8 +27,9 @@ import numpy as np
 from .benchmark.metrics import OutageResult
 from .datasets.synthetic import GnssFix, Trajectory
 from .eskf import Eskf, EskfConfig
-from .frames import dcm_to_euler
+from .frames import dcm_to_euler, exp_so3
 from .mechanization import ImuSample, Mechanizer
+from .vision.frontend import VoMeasurement
 
 
 @dataclass
@@ -57,12 +58,36 @@ def build_filter(traj: Trajectory, cfg: EskfConfig) -> Eskf:
     return Eskf(mech, cfg, traj.initial_state())
 
 
+def index_vo(measurements: list[VoMeasurement]) -> dict[int, VoMeasurement]:
+    """Key VO measurements by the trajectory index they land on.
+
+    VO is computed from truth, once, independently of any filter. That is what
+    keeps the ablation clean: mask-on and mask-off differ only in which
+    correspondences the pose estimator saw, and every other input to every
+    variant is byte-identical.
+    """
+    return {m.index: m for m in measurements}
+
+
+def _gyro_delta(imus: list[ImuSample], m: VoMeasurement, dt: float) -> np.ndarray:
+    """Uncorrected gyro rotation over a VO interval, ``prod Exp(w_k dt)``.
+
+    Sample ``k`` rotates the body from epoch ``k`` to ``k+1``, so the interval
+    ``[index_prev, index)`` covers exactly the two epochs VO compared.
+    """
+    G = np.eye(3)
+    for j in range(m.index_prev, m.index):
+        G = G @ exp_so3(imus[j].w * dt)
+    return G
+
+
 def run_aided_pass(
     traj: Trajectory,
     imus: list[ImuSample],
     fixes: list[GnssFix],
     cfg: EskfConfig,
     snapshot_times: np.ndarray | None = None,
+    vo: dict[int, VoMeasurement] | None = None,
 ) -> PassResult:
     """Filter the full sequence with GNSS on, recording snapshots."""
     ekf = build_filter(traj, cfg)
@@ -95,6 +120,18 @@ def run_aided_pass(
             ekf.update_zupt()
         if cfg.use_nhc and not ekf.is_stationary():
             ekf.update_nhc()
+        # VO is not gated on the static detector. A constant-velocity cruise
+        # is indistinguishable from standstill to an IMU-variance test (|f| ~ g,
+        # gyro ~ 0), so gating VO on it would drop the update on exactly the
+        # straight segments where forward drift accumulates fastest. The camera
+        # can tell 14 m/s from parked; let it say so, and let the chi-square
+        # gate arbitrate.
+        if cfg.use_vo and vo is not None:
+            m = vo.get(k + 1)
+            if m is not None:
+                ekf.update_vo_velocity(m.v_b, m.R_v)
+                if cfg.use_vo_rotation:
+                    ekf.update_vo_rotation(m.dR_b, _gyro_delta(imus, m, dt), m.dt, m.R_rot)
 
         p_hist[k + 1] = ekf.state.p
         v_hist[k + 1] = ekf.state.v
@@ -122,6 +159,7 @@ def run_outage(
     snap: Snapshot,
     cfg: EskfConfig,
     duration: float,
+    vo: dict[int, VoMeasurement] | None = None,
 ) -> OutageResult:
     """Propagate from a snapshot with GNSS cut and score the resulting drift."""
     ekf = build_filter(traj, cfg)
@@ -139,6 +177,18 @@ def run_outage(
             ekf.update_zupt()
         if cfg.use_nhc and not ekf.is_stationary():
             ekf.update_nhc()
+        # VO is not gated on the static detector. A constant-velocity cruise
+        # is indistinguishable from standstill to an IMU-variance test (|f| ~ g,
+        # gyro ~ 0), so gating VO on it would drop the update on exactly the
+        # straight segments where forward drift accumulates fastest. The camera
+        # can tell 14 m/s from parked; let it say so, and let the chi-square
+        # gate arbitrate.
+        if cfg.use_vo and vo is not None:
+            m = vo.get(k + 1)
+            if m is not None:
+                ekf.update_vo_velocity(m.v_b, m.R_v)
+                if cfg.use_vo_rotation:
+                    ekf.update_vo_rotation(m.dR_b, _gyro_delta(imus, m, dt), m.dt, m.R_rot)
         err = ekf.state.p - traj.p[k + 1]
         max_h = max(max_h, float(np.linalg.norm(err[:2])))
 
@@ -170,6 +220,7 @@ def run_outage_study(
     durations: list[float],
     window_spacing: float = 60.0,
     warmup: float = 120.0,
+    vo_sources: dict[str, dict[int, VoMeasurement]] | None = None,
 ) -> tuple[PassResult, dict[str, dict[float, list[OutageResult]]]]:
     """Sweep every ablation over every outage duration.
 
@@ -193,8 +244,9 @@ def run_outage_study(
 
     out: dict[str, dict[float, list[OutageResult]]] = {}
     for name, cfg in outage_cfgs.items():
+        vo = (vo_sources or {}).get(name)
         out[name] = {
-            d: [run_outage(traj, imus, s, cfg, d) for s in pass_result.snapshots]
+            d: [run_outage(traj, imus, s, cfg, d, vo=vo) for s in pass_result.snapshots]
             for d in durations
         }
     return pass_result, out

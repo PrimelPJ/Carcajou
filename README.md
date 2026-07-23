@@ -2,9 +2,6 @@
 
 **GNSS-denied vehicle navigation: strapdown INS, error-state Kalman filtering, and a drift benchmark that reports the number vendors are actually held to.**
 
-[![ci](https://github.com/PrimelPJ/carcajou/actions/workflows/ci.yml/badge.svg)](https://github.com/PrimelPJ/carcajou/actions/workflows/ci.yml)
-![python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue)
-![license](https://img.shields.io/badge/license-MIT-green)
 
 When a vehicle drives into a tunnel, an underground parkade or a downtown
 canyon, GNSS stops being an answer. What happens next is decided entirely by
@@ -45,6 +42,15 @@ error of 0.26 degrees.
 | `ins+zupt` | 0.52 / 1.13 | 1.10 / 4.94 | 3.78 / 15.70 | 15.73 / 51.56 |
 | `ins+nhc` | 0.45 / 1.17 | 0.39 / 2.64 | 1.22 / 3.65 | 1.34 / 20.14 |
 | `ins+zupt+nhc` | 0.45 / 1.17 | 0.39 / 2.64 | 1.21 / 3.65 | 1.28 / 20.14 |
+| `ins+zupt+nhc+vo(mask off)` | 0.45 / 1.17 | 0.39 / 2.64 | 1.32 / 3.65 | 1.52 / 19.36 |
+| **`ins+zupt+nhc+vo(mask on)`** | 0.49 / 0.68 | 0.37 / 0.65 | 0.37 / 0.74 | **0.42 / 0.92** |
+
+The VO rows are Phase 1: stereo visual odometry consumed as a body-frame
+velocity update, with a semantic segmentation mask applied to correspondences
+*before* pose estimation. Same snapshots, same windows, same IMU realisation as
+every other row (`scripts/run_vision_ablation.py`). The mask is simulated at a
+plausible operating point for a real-time segmenter (object recall 0.97,
+2 % boundary leak, 2 % static false positives); sweep it, don't quote it.
 
 **IMU: `tactical`**
 
@@ -69,9 +75,22 @@ error of 0.26 degrees.
    every epoch the vehicle is moving. This is not the ordering most
    introductory treatments imply, and it is the kind of thing a benchmark tells
    you and intuition does not.
-4. **Consumer MEMS cannot be rescued by constraints alone.** Median 1.28 % at
-   120 s with a p95 of 20 % is not a shippable system. That is the empirical
-   case for vision and LiDAR aiding, and it is why Phase 1 exists.
+4. **Consumer MEMS cannot be rescued by constraints alone, and is rescued by
+   masked VO.** Constraints leave it at median 1.28 % / p95 20 % at 120 s; a
+   stereo VO velocity update behind a segmentation mask takes it to
+   **0.42 % / 0.92 %**, inside the 1 % budget even at the tail. In absolute
+   terms: 266 m p95 final error becomes 12 m.
+5. **An unmasked camera is worse than no camera.** With the mask off, a lead
+   vehicle holding station at ego speed owns enough of the tracked features
+   that its motion becomes the RANSAC consensus, and the front end
+   confidently votes for zero ego-motion (measured: about -11 m/s of forward
+   velocity bias at cruise). The filter's chi-square gate rejects nearly all
+   of it, so the median collapses back to the constraint-only baseline, and
+   what leaks through poisons the tail (1.52 / 19.36). Detecting and removing
+   dynamic objects before the pose estimator is not an optimisation; it is
+   the difference between the sensor helping and the sensor lying. That is
+   the mask-on/mask-off ablation, and it is the design argument for running
+   segmentation in the odometry path at all.
 
 ![outage error growth](results/outage_error_growth.png)
 
@@ -153,6 +172,12 @@ src/carcajou/
   eskf.py             15-state ESKF: GNSS pos/vel, ZUPT, NHC, gating, Joseph form
   sensors.py          IMU and GNSS error models by grade
   pipeline.py         aided pass with snapshots + outage harness
+  vision/
+    camera.py         rectified stereo rig: projection, triangulation, depth gate
+    world.py          static landmark corridor + a station-keeping lead vehicle
+    segmentation.py   simulated mask (quality-sweepable) and ONNX inference path
+    frontend.py       tracking, MSAC rigid fit, Huber pixel-space refinement,
+                      VO -> body-velocity measurement with defended covariance
   datasets/
     synthetic.py      self-consistent trajectory and sensor simulator
     kitti.py          KITTI raw OXTS loader with documented frame conversions
@@ -192,12 +217,26 @@ usable by anyone downstream. Full detail in `docs/DESIGN.md` section 9.
   Medians are solid; widen `--seeds` before quoting the tails anywhere serious.
 - **No coning or sculling compensation.** Negligible at 100 Hz with automotive
   dynamics; it becomes the dominant term at the 10 Hz KITTI packet rate.
+- **The VO relative-rotation channel is implemented but ships disabled**
+  (`EskfConfig.use_vo_rotation=False`). Consecutive VO intervals share an
+  epoch, so consecutive rotation measurements are correlated; consuming them
+  as independent requires stochastic cloning, and without it the channel only
+  helps if its covariance is inflated by an arbitrary factor. A covariance
+  that needs a fudge factor does not ship enabled here. Cloning is Phase 3.
+- **The vision benchmark uses a landmark world, not rendered images.** Feature
+  detection, matching, illumination and occlusion are absorbed into pixel
+  noise and outlier-rate parameters (`vision/world.py` states what is and is
+  not modelled). This keeps every metre of VO drift attributable, at the cost
+  of not exercising a real front end. The ONNX segmentation path exists for
+  real imagery and is scored by nothing until the KITTI loader is validated.
 
 ## Roadmap
 
-- **Phase 1** Stereo visual odometry as a filter update, with a segmentation
-  mask so features on moving vehicles are never tracked. Ablate the mask on and
-  off, on the same harness. This is the phase that has to rescue consumer MEMS.
+- **Phase 1 — done.** Stereo visual odometry as a filter update, with a
+  segmentation mask so features on moving vehicles are never tracked, ablated
+  mask-on/mask-off on the same harness. It had to rescue consumer MEMS and it
+  does: 1.28 % / 20 % becomes 0.42 % / 0.92 % at 120 s. Remaining from this
+  phase: enable the relative-rotation channel once stochastic cloning lands.
 - **Phase 2** LiDAR odometry (NDT) against a locally built map with dynamic
   returns removed; persist static landmarks and add a map-matching update.
 - **Phase 3** ROS2 Humble nodes, C++/Eigen port of the filter hot loop, 21 or
