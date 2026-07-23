@@ -55,6 +55,7 @@ class EskfConfig:
     # no principled derivation. Cloning is Phase 3; until then the honest
     # default is off. See update_vo_rotation.
     use_vo_rotation: bool = False
+    use_map: bool = False
     # ZUPT detector thresholds, tuned for a road vehicle at 100 Hz.
     zupt_window: int = 20
     zupt_accel_thresh: float = 0.25  # m/s^2, deviation of |f| from |g|
@@ -96,6 +97,8 @@ class Eskf:
             "gnss_applied": 0, "gnss_rejected": 0, "zupt": 0, "nhc": 0,
             "vo_applied": 0, "vo_rejected": 0,
             "vo_rot_applied": 0, "vo_rot_rejected": 0,
+            "map_pos_applied": 0, "map_pos_rejected": 0,
+            "map_rot_applied": 0, "map_rot_rejected": 0,
         }
 
     # ------------------------------------------------------------------ time
@@ -282,6 +285,39 @@ class Eskf:
         Rm = Rm * self.cfg.vo_sigma_scale**2 + np.eye(3) * 1e-10
         ok = self._update(H, r, 0.5 * (Rm + Rm.T))
         self.stats["vo_rot_applied" if ok else "vo_rot_rejected"] += 1
+        return ok
+
+    def update_map_position(self, p_meas: np.ndarray, R: np.ndarray) -> bool:
+        """Absolute position from scan-to-map registration.
+
+        Structurally identical to the GNSS position update — an absolute nav-
+        frame position with its own covariance — which is the entire point of
+        the two-pass design: a persisted map turns a relative sensor into an
+        absolute one, and the filter consumes it through the same 3-DOF
+        measurement model GNSS uses, gate and all.
+        """
+        H = np.zeros((3, 15))
+        H[:, IDX_P] = np.eye(3)
+        r = np.asarray(p_meas, float) - self.state.p
+        ok = self._update(H, r, np.asarray(R, float))
+        self.stats["map_pos_applied" if ok else "map_pos_rejected"] += 1
+        return ok
+
+    def update_map_rotation(self, R_meas: np.ndarray, R: np.ndarray) -> bool:
+        """Absolute attitude from scan-to-map registration.
+
+        With the global/left error convention, ``R_true = Exp(dtheta) R_est``,
+        so ``Log(R_meas R_est^T)`` measures ``dtheta`` directly and H is the
+        identity on the attitude block. This is the update GNSS cannot
+        provide at all: it observes heading without needing motion, which is
+        what keeps yaw bounded through the long, straight tunnel segments
+        where NHC's observability is weakest.
+        """
+        r = log_so3(np.asarray(R_meas, float) @ self.state.R.T)
+        H = np.zeros((3, 15))
+        H[:, IDX_TH] = np.eye(3)
+        ok = self._update(H, r, np.asarray(R, float))
+        self.stats["map_rot_applied" if ok else "map_rot_rejected"] += 1
         return ok
 
     # -------------------------------------------------------------- helpers

@@ -47,6 +47,10 @@ class PassResult:
     sigma_p: np.ndarray
     snapshots: list[Snapshot]
     stats: dict
+    # Estimated body poses at requested indices, for posing map scans at the
+    # filter's answer rather than at truth. A map built from truth poses would
+    # smuggle truth into the second pass.
+    poses: dict[int, tuple[np.ndarray, np.ndarray]] | None = None
 
 
 def _wrap_pi(a: float) -> float:
@@ -88,6 +92,8 @@ def run_aided_pass(
     cfg: EskfConfig,
     snapshot_times: np.ndarray | None = None,
     vo: dict[int, VoMeasurement] | None = None,
+    map_matcher=None,
+    capture_pose_indices: set[int] | None = None,
 ) -> PassResult:
     """Filter the full sequence with GNSS on, recording snapshots."""
     ekf = build_filter(traj, cfg)
@@ -106,6 +112,7 @@ def run_aided_pass(
     s_hist[0] = ekf.sigma()[0:3]
 
     snapshots: list[Snapshot] = []
+    captured: dict[int, tuple[np.ndarray, np.ndarray]] = {}
 
     for k, imu in enumerate(imus):
         ekf.predict(imu, dt)
@@ -132,10 +139,17 @@ def run_aided_pass(
                 ekf.update_vo_velocity(m.v_b, m.R_v)
                 if cfg.use_vo_rotation:
                     ekf.update_vo_rotation(m.dR_b, _gyro_delta(imus, m, dt), m.dt, m.R_rot)
+        if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
+            mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)
+            if mm is not None:
+                ekf.update_map_position(mm.p_b, mm.cov_p)
+                ekf.update_map_rotation(mm.R_b, mm.cov_r)
 
         p_hist[k + 1] = ekf.state.p
         v_hist[k + 1] = ekf.state.v
         s_hist[k + 1] = ekf.sigma()[0:3]
+        if capture_pose_indices is not None and (k + 1) in capture_pose_indices:
+            captured[k + 1] = (ekf.state.R.copy(), ekf.state.p.copy())
 
         while snap_i < len(snap_targets) and imu.t >= snap_targets[snap_i] - 1e-9:
             snapshots.append(
@@ -150,6 +164,7 @@ def run_aided_pass(
         sigma_p=s_hist,
         snapshots=snapshots,
         stats=dict(ekf.stats),
+        poses=captured if capture_pose_indices is not None else None,
     )
 
 
@@ -160,6 +175,7 @@ def run_outage(
     cfg: EskfConfig,
     duration: float,
     vo: dict[int, VoMeasurement] | None = None,
+    map_matcher=None,
 ) -> OutageResult:
     """Propagate from a snapshot with GNSS cut and score the resulting drift."""
     ekf = build_filter(traj, cfg)
@@ -189,6 +205,11 @@ def run_outage(
                 ekf.update_vo_velocity(m.v_b, m.R_v)
                 if cfg.use_vo_rotation:
                     ekf.update_vo_rotation(m.dR_b, _gyro_delta(imus, m, dt), m.dt, m.R_rot)
+        if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
+            mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)
+            if mm is not None:
+                ekf.update_map_position(mm.p_b, mm.cov_p)
+                ekf.update_map_rotation(mm.R_b, mm.cov_r)
         err = ekf.state.p - traj.p[k + 1]
         max_h = max(max_h, float(np.linalg.norm(err[:2])))
 
@@ -221,6 +242,7 @@ def run_outage_study(
     window_spacing: float = 60.0,
     warmup: float = 120.0,
     vo_sources: dict[str, dict[int, VoMeasurement]] | None = None,
+    matcher_sources: dict[str, object] | None = None,
 ) -> tuple[PassResult, dict[str, dict[float, list[OutageResult]]]]:
     """Sweep every ablation over every outage duration.
 
@@ -245,8 +267,12 @@ def run_outage_study(
     out: dict[str, dict[float, list[OutageResult]]] = {}
     for name, cfg in outage_cfgs.items():
         vo = (vo_sources or {}).get(name)
+        mm = (matcher_sources or {}).get(name)
         out[name] = {
-            d: [run_outage(traj, imus, s, cfg, d, vo=vo) for s in pass_result.snapshots]
+            d: [
+                run_outage(traj, imus, s, cfg, d, vo=vo, map_matcher=mm)
+                for s in pass_result.snapshots
+            ]
             for d in durations
         }
     return pass_result, out
