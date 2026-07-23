@@ -28,7 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.stats import chi2
 
-from .frames import exp_so3, orthonormalize, skew
+from .frames import exp_so3, log_so3, orthonormalize, skew
 from .mechanization import ImuSample, Mechanizer, NavState
 from .sensors import GnssSpec, ImuSpec
 
@@ -46,12 +46,22 @@ class EskfConfig:
     use_gnss_velocity: bool = True
     use_zupt: bool = True
     use_nhc: bool = False
+    use_vo: bool = False
+    # Implemented but off by default: the relative-rotation channel's reported
+    # noise is optimistic because successive VO intervals share an epoch and
+    # their errors are therefore correlated, which this filter cannot carry
+    # without stochastic cloning. Enabling it improves the gyro-bias estimate
+    # and degrades position unless the covariance is inflated by a factor with
+    # no principled derivation. Cloning is Phase 3; until then the honest
+    # default is off. See update_vo_rotation.
+    use_vo_rotation: bool = False
     # ZUPT detector thresholds, tuned for a road vehicle at 100 Hz.
     zupt_window: int = 20
     zupt_accel_thresh: float = 0.25  # m/s^2, deviation of |f| from |g|
     zupt_gyro_thresh: float = 0.02  # rad/s
     zupt_sigma: float = 0.02  # m/s
     nhc_sigma: float = 0.15  # m/s
+    vo_sigma_scale: float = 1.0  # multiplier on the front end's reported R
     innovation_gate_p: float = 0.999  # chi-square gate confidence
     # Initial uncertainty
     p0_pos: float = 5.0
@@ -82,7 +92,11 @@ class Eskf:
         self._imu_buf: list[ImuSample] = []
         self._gates = {d: float(chi2.ppf(cfg.innovation_gate_p, df=d)) for d in (1, 2, 3, 6)}
         self._static: bool | None = None  # invalidated on every predict()
-        self.stats = {"gnss_applied": 0, "gnss_rejected": 0, "zupt": 0, "nhc": 0}
+        self.stats = {
+            "gnss_applied": 0, "gnss_rejected": 0, "zupt": 0, "nhc": 0,
+            "vo_applied": 0, "vo_rejected": 0,
+            "vo_rot_applied": 0, "vo_rot_rejected": 0,
+        }
 
     # ------------------------------------------------------------------ time
     def predict(self, imu: ImuSample, dt: float) -> None:
@@ -200,6 +214,74 @@ class Eskf:
         r = -sel @ v_b
         ok = self._update(H, r, np.eye(2) * self.cfg.nhc_sigma**2)
         self.stats["nhc"] += int(ok)
+        return ok
+
+    def update_vo_velocity(self, v_b_meas: np.ndarray, R: np.ndarray) -> bool:
+        """Body-frame velocity update from stereo visual odometry.
+
+        Same measurement function as NHC, without the selector: NHC asserts that
+        two components of ``R^T v`` are zero, VO measures all three. The shared
+        structure is not a coincidence. Both are body-frame velocity
+        constraints, which is also why the attitude coupling is identical and
+        why VO bounds heading drift for the same reason NHC does.
+
+        ``R`` comes from the front end, per epoch, and is not a tuning constant.
+        A frame that tracked forty far-field points on a wet road reports a
+        worse covariance than one that tracked three hundred at fifteen metres,
+        and the filter should believe it less. Any front end wired in here must
+        supply a covariance it can defend; the chi-square gate will reject an
+        optimistic one, which shows up as a rejection rate rather than as drift,
+        and that is the failure mode you want.
+        """
+        Rbn = self.state.R
+        H = np.zeros((3, 15))
+        H[:, IDX_V] = Rbn.T
+        H[:, IDX_TH] = Rbn.T @ skew(self.state.v)
+        r = np.asarray(v_b_meas, float) - Rbn.T @ self.state.v
+        ok = self._update(H, r, np.asarray(R, float) * self.cfg.vo_sigma_scale**2)
+        self.stats["vo_applied" if ok else "vo_rejected"] += 1
+        return ok
+
+    def update_vo_rotation(
+        self, dR_b_meas: np.ndarray, G_raw: np.ndarray, dt: float, R_rot: np.ndarray
+    ) -> bool:
+        """Relative-rotation update from stereo VO, observing gyro bias.
+
+        VO's rotation between two epochs and the gyro's integrated rotation
+        over the same interval measure the same physical quantity through
+        independent errors. Their disagreement is, to first order, the gyro
+        bias error integrated over the interval, which is exactly the term
+        NHC and the velocity update observe only weakly. This is the channel
+        that bounds heading drift, the limiting error source for consumer
+        MEMS once velocity is aided.
+
+        ``G_raw`` is the *uncorrected* gyro rotation over the interval,
+        ``prod Exp(w_k dt)``, and the current bias estimate is removed here:
+        ``G_corr = G_raw Exp(-b_g T)``. Comparing against raw gyro rather
+        than the filter's own attitude history is deliberate. Between two VO
+        epochs the filter applies a dozen NHC and velocity updates, each of
+        which nudges attitude; a prediction built from filter attitudes
+        inherits those state-correlated corrections and the residual stops
+        being the clean bias observation the H matrix claims. Raw gyro keeps
+        the two sides of the comparison independent, which is the property
+        the whole update rests on.
+
+        First-order approximations, stated: the bias correction is applied as
+        a single right-multiplied rotation rather than per sample (commutator
+        error ~ |w| |b| T^2, nanoradians here), and the measurement noise
+        carries the gyro ARW over the interval so the residual is never
+        trusted below the sensor's own floor.
+        """
+        T = dt
+        G_corr = np.asarray(G_raw, float) @ exp_so3(-self.state.b_g * T)
+        dR_pred = G_corr.T  # matches dR_meas = R_curr^T R_prev
+        r = log_so3(dR_pred.T @ np.asarray(dR_b_meas, float))
+        H = np.zeros((3, 15))
+        H[:, IDX_BG] = np.eye(3) * dt
+        Rm = np.asarray(R_rot, float) + np.eye(3) * (self.cfg.imu.arw**2 * dt)
+        Rm = Rm * self.cfg.vo_sigma_scale**2 + np.eye(3) * 1e-10
+        ok = self._update(H, r, 0.5 * (Rm + Rm.T))
+        self.stats["vo_rot_applied" if ok else "vo_rot_rejected"] += 1
         return ok
 
     # -------------------------------------------------------------- helpers

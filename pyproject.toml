@@ -20,6 +20,7 @@ dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.optional-dependencies]
 plots = ["matplotlib>=3.7"]
+vision = ["onnxruntime>=1.17", "opencv-python-headless>=4.9"]
 dev = ["pytest>=7.4", "pytest-cov", "ruff>=0.4", "matplotlib>=3.7"]
 
 [project.scripts]
