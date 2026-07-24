@@ -52,9 +52,9 @@ class MapMatcher:
         lmap: LandmarkMap,
         mask: SimulatedMask = MASK_OFF,
         rng: np.random.Generator | None = None,
-        min_matched: int = 60,
+        min_matched: int = 150,
         max_rms: float = 0.45,
-        min_match_fraction: float = 0.3,
+        min_match_fraction: float = 0.45,
     ) -> None:
         self.scanner = scanner
         self.map = lmap
@@ -80,10 +80,25 @@ class MapMatcher:
         p_bl = self.scanner.spec.p_bl
         R0 = R_b_est
         t0 = p_b_est + R_b_est @ p_bl
-        res = icp_point_to_point(
-            pts, sig, self._tree, self.map.points, self.map.sigma, R0, t0,
-            min_matched=self.min_matched,
-        )
+        # Coarse-to-fine re-acquisition. The 2 m correspondence gate defines
+        # a ~3 m basin; a filter that has coasted through a few rejected
+        # scans starts outside it. Widening the gate for a retry extends the
+        # basin without weakening acceptance: the gates below judge the
+        # *converged pose* by how much of the world it explains, and are
+        # identical for every rung of the ladder, so a wide-gate attempt
+        # that lands wrong is refused exactly as a narrow one would be.
+        res = None
+        for max_corr in (2.0, 4.0, 8.0):
+            res = icp_point_to_point(
+                pts, sig, self._tree, self.map.points, self.map.sigma, R0, t0,
+                max_corr=max_corr, min_matched=self.min_matched,
+            )
+            if (
+                res.converged
+                and res.rms_residual <= self.max_rms
+                and res.n_matched >= self.min_match_fraction * len(pts)
+            ):
+                break
         if (
             not res.converged
             or res.rms_residual > self.max_rms
@@ -91,14 +106,14 @@ class MapMatcher:
         ):
             # Refusing to answer beats answering wrongly with confidence; the
             # filter coasts on inertial + constraints until the next scan.
-            # The load-bearing gate is rms, and its threshold is set by
+            # With the sigma-gated refit in the registration, the load-bearing
+            # gate is the inlier count, and the thresholds are set by
             # measurement, not taste: a correct registration in this world
-            # converges to rms ~ 0.06-0.23, while an ICP that snapped to the
-            # wrong local minimum lands at rms ~ 0.9 and above; 0.45 sits in
-            # the empty margin between them. Match fraction is deliberately a
-            # weak floor, not a discriminator: a lead vehicle can honestly be
-            # a third of the scan, and those points correctly matching nothing
-            # in a clean map must not veto a centimetre-accurate fix. So
+            # explains 500-700 points at rms ~ 0.15 even with a lead vehicle
+            # filling a third of the scan, while a wrong-basin pose explains
+            # 75-240 points — the pose that fits the world keeps most of it,
+            # and the pose that aliased onto the wrong stretch of corridor
+            # explains only the coincidences. rms stays as a backstop. So
             # lost-in-map shows up as missing updates, never confident wrong
             # ones, and a heavy dynamic load costs information, not truth.
             return None

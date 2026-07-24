@@ -52,6 +52,38 @@ every other row (`scripts/run_vision_ablation.py`). The mask is simulated at a
 plausible operating point for a real-time segmenter (object recall 0.97,
 2 % boundary leak, 2 % static false positives); sweep it, don't quote it.
 
+**IMU: `consumer-mems`** with scan-to-map localization (6 windows per cell,
+single seed; widen with `scripts/run_lidar_ablation.py --seeds N` before
+quoting tails)
+
+| aiding during outage | 10 s | 30 s | 60 s | 120 s |
+|---|---|---|---|---|
+| `ins+zupt+nhc` | 0.32 / 0.92 | 0.62 / 2.49 | 0.79 / 2.96 | 1.21 / 1.37 |
+| **`ins+zupt+nhc+map`** | 0.12 / 0.16 | 0.05 / 0.08 | 0.02 / 0.03 | **0.01 / 0.02** |
+| `ins+zupt+nhc+map(phantom)` | 0.11 / 0.15 | 0.04 / 0.08 | 0.02 / 0.04 | 0.01 / 0.02 |
+
+The map rows are Phase 2: the route is driven once with GNSS available, scans
+are posed at the *filter's* estimate (never truth), dynamic returns are removed
+by the segmentation mask, and the surviving structure is persisted. Outages
+then localize against that map with trimmed, sigma-gated ICP initialised from
+the filter's own drifting estimate. Because the map is absolute, error stops
+growing with time: a 120 s outage ends at a median of **0.15 m** versus 16 m
+for constraints alone, and drift-*percent* falls as the outage lengthens.
+The second drive carries fresh sensor noise and different traffic (the lead
+vehicle holds a different gap), as a second drive would.
+
+The `(phantom)` row is the honest surprise. It is the identical pipeline with
+the mask off at map-build time, so the lead vehicle is baked into the map —
+and on this route it changes nothing. The phantom ribbon lies along the
+roadway where static structure never is, its along-track geometry makes its
+correspondences degenerate rather than biasing, and the sigma-gated refit
+absorbs the rest. The mask's measurable value here is map hygiene (the test
+suite quantifies a >20x reduction in phantom voxels), not drift. A benchmark
+that only produced numbers confirming the sales pitch would not be worth
+running; this one says the damage from mapped-in dynamics is contingent on
+static density and registration robustness, and quantifying *when* it bites
+is future work, stated rather than implied.
+
 **IMU: `tactical`**
 
 | aiding during outage | 10 s | 30 s | 60 s | 120 s |
@@ -178,6 +210,13 @@ src/carcajou/
     segmentation.py   simulated mask (quality-sweepable) and ONNX inference path
     frontend.py       tracking, MSAC rigid fit, Huber pixel-space refinement,
                       VO -> body-velocity measurement with defended covariance
+  lidar/
+    scanner.py        range-gated landmark scans, affine range noise
+    registration.py   voxel consolidation, trimmed + sigma-gated weighted ICP,
+                      covariance from the converged normal equations
+    mapping.py        mask-at-mapping-time dynamic removal, versioned map files
+    matcher.py        online scan-to-map matching from the filter's estimate,
+                      coarse-to-fine re-acquisition, measured acceptance gates
   datasets/
     synthetic.py      self-consistent trajectory and sensor simulator
     kitti.py          KITTI raw OXTS loader with documented frame conversions
@@ -237,8 +276,13 @@ usable by anyone downstream. Full detail in `docs/DESIGN.md` section 9.
   mask-on/mask-off on the same harness. It had to rescue consumer MEMS and it
   does: 1.28 % / 20 % becomes 0.42 % / 0.92 % at 120 s. Remaining from this
   phase: enable the relative-rotation channel once stochastic cloning lands.
-- **Phase 2** LiDAR odometry (NDT) against a locally built map with dynamic
-  returns removed; persist static landmarks and add a map-matching update.
+- **Phase 2 — done.** Scan matching against a persisted map built with dynamic
+  returns removed, two-pass structure, localization from the filter's own
+  estimate. Same sensors, better answer: 1.21 % / 16 m at 120 s becomes
+  0.01 % / 0.15 m, and error is bounded rather than growing. ICP was chosen
+  over NDT so the covariance argument is shared with the vision front end;
+  the module boundary is pose + covariance, so NDT can replace it without
+  touching a caller.
 - **Phase 3** ROS2 Humble nodes, C++/Eigen port of the filter hot loop, 21 or
   24-state extension for scale factor and misalignment, hardware-in-the-loop
   replay.

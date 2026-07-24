@@ -243,6 +243,7 @@ def run_outage_study(
     warmup: float = 120.0,
     vo_sources: dict[str, dict[int, VoMeasurement]] | None = None,
     matcher_sources: dict[str, object] | None = None,
+    pass_result: PassResult | None = None,
 ) -> tuple[PassResult, dict[str, dict[float, list[OutageResult]]]]:
     """Sweep every ablation over every outage duration.
 
@@ -262,7 +263,10 @@ def run_outage_study(
             f"shorten the outages (--durations), or reduce --warmup."
         )
 
-    pass_result = run_aided_pass(traj, imus, fixes, aided_cfg, snapshot_times=starts)
+    if pass_result is None:
+        pass_result = run_aided_pass(traj, imus, fixes, aided_cfg, snapshot_times=starts)
+    elif not pass_result.snapshots:
+        raise ValueError("precomputed pass_result has no snapshots")
 
     out: dict[str, dict[float, list[OutageResult]]] = {}
     for name, cfg in outage_cfgs.items():

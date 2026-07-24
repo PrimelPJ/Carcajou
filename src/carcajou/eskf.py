@@ -123,17 +123,20 @@ class Eskf:
         self._static = None
 
     # ------------------------------------------------------------ correction
-    def _update(self, H: np.ndarray, r: np.ndarray, R: np.ndarray, gate: bool = True) -> bool:
+    def _update(
+        self, H: np.ndarray, r: np.ndarray, R: np.ndarray,
+        gate: bool = True, gate_scale: float = 1.0,
+    ) -> bool:
         S = H @ self.P @ H.T + R
         if gate:
             try:
                 nis = float(r @ np.linalg.solve(S, r))
             except np.linalg.LinAlgError:
                 return False
-            gate = self._gates.get(len(r)) or float(
+            thr = self._gates.get(len(r)) or float(
                 chi2.ppf(self.cfg.innovation_gate_p, df=len(r))
             )
-            if nis > gate:
+            if nis > thr * gate_scale:
                 return False
 
         K = np.linalg.solve(S, H @ self.P).T  # == P H^T S^-1, without forming S^-1
@@ -299,7 +302,16 @@ class Eskf:
         H = np.zeros((3, 15))
         H[:, IDX_P] = np.eye(3)
         r = np.asarray(p_meas, float) - self.state.p
-        ok = self._update(H, r, np.asarray(R, float))
+        # Wider gate than GNSS, deliberately. The matcher's own acceptance
+        # gates already vet correctness by consensus (a wrong-basin pose
+        # cannot explain 500 points at scan noise), so the failure the
+        # innovation gate exists to catch is largely pre-filtered. Meanwhile
+        # this filter's covariance is documented as mildly optimistic, and a
+        # tight gate on an optimistic P turns a few metres of honest drift
+        # into a rejection cascade: fix refused -> drift grows -> next fix
+        # refused harder -> map lost. Absolute re-acquisition must survive
+        # its own prior being wrong; that is what makes it re-acquisition.
+        ok = self._update(H, r, np.asarray(R, float), gate_scale=25.0)
         self.stats["map_pos_applied" if ok else "map_pos_rejected"] += 1
         return ok
 
@@ -316,7 +328,7 @@ class Eskf:
         r = log_so3(np.asarray(R_meas, float) @ self.state.R.T)
         H = np.zeros((3, 15))
         H[:, IDX_TH] = np.eye(3)
-        ok = self._update(H, r, np.asarray(R, float))
+        ok = self._update(H, r, np.asarray(R, float), gate_scale=25.0)
         self.stats["map_rot_applied" if ok else "map_rot_rejected"] += 1
         return ok
 

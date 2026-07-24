@@ -129,6 +129,41 @@ def icp_point_to_point(
         if np.linalg.norm(log_so3(dR)) < 1e-8 and np.linalg.norm(cb - dR @ ca) < 1e-8:
             break
 
+    # Final sigma-consistent inlier gate and refit. Trimming by fraction is
+    # the wrong tool when a third of the scan can honestly be a lead vehicle:
+    # its returns that land inside the correspondence gate survive an 85 %
+    # trim and inflate the rms, and the matcher then rejects a fix whose
+    # static core is centimetre-accurate. Gating by each pair's own noise
+    # model instead keeps exactly the points the converged pose explains, so
+    # rms measures the static fit and dynamic contamination costs points,
+    # not acceptance. A wrong-basin pose explains almost nothing at 3 sigma,
+    # so its gated inlier count collapses and min_matched refuses it — the
+    # same division of labour as RANSAC-then-refine in the vision front end.
+    for _ in range(2):
+        P = scan @ R.T + t
+        dist, j = map_tree.query(P, k=1, distance_upper_bound=max_corr)
+        ok = np.isfinite(dist)
+        if ok.sum() < min_matched:
+            return fail
+        idx = np.where(ok)[0]
+        sig = np.sqrt(scan_sigma[idx] ** 2 + map_sigma[j[idx]] ** 2) + 1e-6
+        gated = dist[idx] < np.maximum(3.0 * sig, 0.05)
+        inl = idx[gated]
+        if len(inl) < min_matched:
+            return fail
+        q = map_points[j[inl]]
+        p = scan[inl]
+        sig = np.sqrt(scan_sigma[inl] ** 2 + map_sigma[j[inl]] ** 2) + 1e-6
+        w = 1.0 / sig**2
+        wn = w / w.sum()
+        P_k = p @ R.T + t
+        ca, cb = wn @ P_k, wn @ q
+        Hm = ((P_k - ca) * wn[:, None]).T @ (q - cb)
+        U, _, Vt = np.linalg.svd(Hm)
+        d = np.sign(np.linalg.det(Vt.T @ U.T))
+        dR = Vt.T @ np.diag([1.0, 1.0, d]) @ U.T
+        R, t = dR @ R, dR @ t + (cb - dR @ ca)
+
     P = scan[inl] @ R.T + t
     resid = q - P
     rms = float(np.sqrt(np.mean(np.sum(resid**2, axis=1))))
