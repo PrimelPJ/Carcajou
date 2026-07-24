@@ -38,6 +38,12 @@ class ImuSpec:
     tau_a: float
     b0_g: float
     b0_a: float
+    # Scale-factor 1-sigma (dimensionless; 0.01 = 1 %). Not injected by the
+    # simulator unless asked (corrupt_imu(..., inject_scale=True)), so every
+    # table produced before Phase 3 is unchanged. Values are datasheet-typical
+    # per grade and are what the 24-state extension estimates.
+    sf_a: float = 0.0
+    sf_g: float = 0.0
 
     def process_noise(self) -> np.ndarray:
         """Continuous-time process-noise PSD for ``[n_a, n_g, w_ba, w_bg]``."""
@@ -66,6 +72,8 @@ CONSUMER_MEMS = ImuSpec(
     bi_a=0.5e-3 * 9.81,
     tau_g=300.0,
     tau_a=300.0,
+    sf_a=0.008,
+    sf_g=0.005,
     b0_g=200.0 * DEG / HR,
     b0_a=15.0e-3 * 9.81,
 )
@@ -79,6 +87,8 @@ INDUSTRIAL_MEMS = ImuSpec(
     bi_a=0.036e-3 * 9.81,
     tau_g=600.0,
     tau_a=600.0,
+    sf_a=0.002,
+    sf_g=0.001,
     b0_g=20.0 * DEG / HR,
     b0_a=2.0e-3 * 9.81,
 )
@@ -92,6 +102,8 @@ TACTICAL = ImuSpec(
     bi_a=0.010e-3 * 9.81,
     tau_g=3600.0,
     tau_a=3600.0,
+    sf_a=0.0003,
+    sf_g=0.0001,
     b0_g=1.0 * DEG / HR,
     b0_a=0.5e-3 * 9.81,
 )
@@ -108,6 +120,11 @@ class GnssSpec:
     sigma_vertical: float  # m, 1-sigma
     sigma_velocity: float  # m/s, 1-sigma (Doppler-derived)
     rate_hz: float = 10.0
+    # First-order Gauss-Markov position error (multipath-like). Zero by
+    # default so existing rows are untouched; the *_GM variants below carry a
+    # realistic split of the same total error budget into white + correlated.
+    sigma_gm: float = 0.0  # m, 1-sigma of the correlated component
+    tau_gm: float = 45.0  # s, correlation time
 
     def R_position(self) -> np.ndarray:
         return np.diag(
@@ -122,4 +139,9 @@ SPP = GnssSpec("spp", 2.5, 4.5, 0.10)  # single-point, open sky
 RTK = GnssSpec("rtk", 0.02, 0.03, 0.01)  # fixed-ambiguity RTK
 URBAN = GnssSpec("urban", 8.0, 15.0, 0.35)  # multipath-degraded urban canyon
 
-GNSS_GRADES = {s.name: s for s in (SPP, RTK, URBAN)}
+# Same total horizontal error budget as SPP/URBAN, split into a white part
+# and a time-correlated part. sqrt(1.2^2 + 2.2^2) ~ 2.5, matching SPP.
+SPP_GM = GnssSpec("spp-gm", 1.2, 2.2, 0.10, sigma_gm=2.2)
+URBAN_GM = GnssSpec("urban-gm", 3.5, 7.0, 0.35, sigma_gm=7.2)
+
+GNSS_GRADES = {s.name: s for s in (SPP, RTK, URBAN, SPP_GM, URBAN_GM)}

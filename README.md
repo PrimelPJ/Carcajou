@@ -244,10 +244,17 @@ initial alignment convergence.
 Stated plainly, because a navigation filter that hides its limitations is not
 usable by anyone downstream. Full detail in `docs/DESIGN.md` section 9.
 
-- **The horizontal covariance is mildly optimistic**, around 95 to 98 percent
-  inside 3-sigma against a nominal 99.7. Causes: GNSS error modelled as white
-  when real multipath is time-correlated; IMU scale factor and axis
-  misalignment not in the state vector; zero lever arm assumed.
+- **The covariance-optimism defect is closed — behind a flag.** Phase 3
+  added a 24-state extension (`EskfConfig.extended_state`): accel and gyro
+  scale factor as random constants, plus a first-order Gauss-Markov GNSS
+  position error state. With those errors actually injected by the simulator
+  (`corrupt_imu(inject_scale=True)`, the `spp-gm` receiver grade), the
+  15-state filter keeps its true error inside its own 3-sigma bound **0.3 %**
+  of the time — a filter confidently lying — while the 24-state filter holds
+  **100 %** against a nominal 99.7, with horizontal RMS improving 2.84 m to
+  2.27 m (`scripts/run_consistency.py`, asserted in CI). The flag defaults
+  off so every published table reproduces bit-for-bit; axis misalignment and
+  lever arm remain future states, stated rather than hidden.
 - **The KITTI loader has not been validated against a real drive.** Frame
   conversions are documented and `validate_against_truth()` pre-flights rate,
   timestamp jitter and gravity convention, but **no number in this repository
@@ -283,9 +290,15 @@ usable by anyone downstream. Full detail in `docs/DESIGN.md` section 9.
   over NDT so the covariance argument is shared with the vision front end;
   the module boundary is pose + covariance, so NDT can replace it without
   touching a caller.
-- **Phase 3** ROS2 Humble nodes, C++/Eigen port of the filter hot loop, 21 or
-  24-state extension for scale factor and misalignment, hardware-in-the-loop
-  replay.
+- **Phase 3 — partially done, honestly scoped.** Done: the 24-state extension
+  (scale factor + GNSS Gauss-Markov), which closes the covariance-optimism
+  defect documented above — the one number a navigation filter must not get
+  wrong is its own confidence. Not done, and not shipped half-done: the
+  C++/Eigen port of the hot loop, ROS2 Humble packaging, stochastic cloning
+  for the VO rotation channel, and hardware-in-the-loop replay. Those need a
+  build environment this repository's CI does not yet exercise, and a repo
+  whose thesis is "believe the numbers" does not ship untested code to look
+  finished.
 
 ## References
 

@@ -171,12 +171,19 @@ def perfect_imu(traj: Trajectory) -> list[ImuSample]:
 
 
 def corrupt_imu(
-    clean: list[ImuSample], spec: ImuSpec, rng: np.random.Generator, dt: float
+    clean: list[ImuSample], spec: ImuSpec, rng: np.random.Generator, dt: float,
+    inject_scale: bool = False,
 ) -> tuple[list[ImuSample], np.ndarray, np.ndarray]:
     """Add turn-on bias, Gauss-Markov in-run bias and white noise.
 
     Returns the corrupted samples plus the true bias histories, so the
     benchmark can score bias estimation as well as position.
+
+    ``inject_scale`` additionally applies per-run constant scale-factor
+    errors drawn from ``spec.sf_a`` / ``spec.sf_g``: the measured signal
+    becomes ``(1 + s) * true`` before bias and noise. Off by default so
+    every pre-Phase-3 table is reproduced bit-for-bit; on, it is the error
+    the 15-state filter cannot represent and the 24-state one estimates.
     """
     n = len(clean)
     b_a = np.zeros((n, 3))
@@ -184,6 +191,8 @@ def corrupt_imu(
 
     b_a_cur = rng.normal(0.0, spec.b0_a, 3) + rng.normal(0.0, spec.bi_a, 3)
     b_g_cur = rng.normal(0.0, spec.b0_g, 3) + rng.normal(0.0, spec.bi_g, 3)
+    s_a = rng.normal(0.0, spec.sf_a, 3) if inject_scale else np.zeros(3)
+    s_g = rng.normal(0.0, spec.sf_g, 3) if inject_scale else np.zeros(3)
 
     beta_a = np.exp(-dt / spec.tau_a)
     beta_g = np.exp(-dt / spec.tau_g)
@@ -202,8 +211,8 @@ def corrupt_imu(
         out.append(
             ImuSample(
                 t=s.t,
-                f=s.f + b_a_cur + rng.normal(0.0, sigma_f, 3),
-                w=s.w + b_g_cur + rng.normal(0.0, sigma_w, 3),
+                f=(1.0 + s_a) * s.f + b_a_cur + rng.normal(0.0, sigma_f, 3),
+                w=(1.0 + s_g) * s.w + b_g_cur + rng.normal(0.0, sigma_w, 3),
             )
         )
     return out, b_a, b_g
@@ -219,15 +228,30 @@ class GnssFix:
 def simulate_gnss(
     traj: Trajectory, spec: GnssSpec, rng: np.random.Generator
 ) -> list[GnssFix]:
-    """Sample the trajectory at the receiver rate and add correlated-ish noise."""
+    """Sample the trajectory at the receiver rate and add receiver noise.
+
+    White position noise always; if ``spec.sigma_gm > 0``, a first-order
+    Gauss-Markov component (correlation time ``spec.tau_gm``) is added on
+    top — the multipath-like error that a white-noise measurement model
+    cannot represent, and the reason the 15-state filter's covariance is
+    optimistic under it. The earlier docstring called the white model
+    "correlated-ish", which was a polite word for "not correlated"; now the
+    correlation exists when the spec says so and nowhere else.
+    """
     step = max(1, int(round((1.0 / spec.rate_hz) / traj.dt)))
     fixes: list[GnssFix] = []
     sigma_p = np.array([spec.sigma_horizontal, spec.sigma_horizontal, spec.sigma_vertical])
+    dt_fix = step * traj.dt
+    beta = np.exp(-dt_fix / spec.tau_gm)
+    q_gm = spec.sigma_gm * np.sqrt(max(1.0 - beta**2, 0.0))
+    gm = rng.normal(0.0, spec.sigma_gm, 3) if spec.sigma_gm > 0 else np.zeros(3)
     for k in range(0, len(traj.t), step):
+        if spec.sigma_gm > 0:
+            gm = beta * gm + rng.normal(0.0, q_gm, 3)
         fixes.append(
             GnssFix(
                 t=float(traj.t[k]),
-                p=traj.p[k] + rng.normal(0.0, sigma_p),
+                p=traj.p[k] + gm + rng.normal(0.0, sigma_p),
                 v=traj.v[k] + rng.normal(0.0, spec.sigma_velocity, 3),
             )
         )

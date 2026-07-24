@@ -171,3 +171,35 @@ def test_zupt_detector_fires_when_stopped():
         if ekf.is_stationary():
             ekf.update_zupt()
     assert ekf.stats["zupt"] > 100
+
+
+def test_extended_state_restores_covariance_consistency():
+    """Phase 3: with scale factor injected and GM GNSS error on, the 15-state
+    filter's 3-sigma claim collapses and the 24-state filter's holds."""
+    import numpy as np
+
+    from carcajou.datasets.synthetic import (
+        corrupt_imu,
+        make_trajectory,
+        perfect_imu,
+        simulate_gnss,
+    )
+    from carcajou.eskf import EskfConfig
+    from carcajou.pipeline import run_aided_pass
+    from carcajou.sensors import GNSS_GRADES, IMU_GRADES
+
+    traj = make_trajectory(laps=1, rate_hz=100.0)
+    clean = perfect_imu(traj)
+    imu_g, gnss_g = IMU_GRADES["industrial-mems"], GNSS_GRADES["spp-gm"]
+    inside = {}
+    for ext in (False, True):
+        rng = np.random.default_rng(100)
+        imus, _, _ = corrupt_imu(clean, imu_g, rng, traj.dt, inject_scale=True)
+        fixes = simulate_gnss(traj, gnss_g, rng)
+        cfg = EskfConfig(imu=imu_g, gnss=gnss_g, use_zupt=True, use_nhc=True, extended_state=ext)
+        pr = run_aided_pass(traj, imus, fixes, cfg)
+        err = np.linalg.norm((pr.p - traj.p)[:, :2], axis=1)
+        bound = 3.0 * np.linalg.norm(pr.sigma_p[:, :2], axis=1)
+        inside[ext] = float(np.mean((err <= bound)[3000:]))
+    assert inside[False] < 0.5, "15-state unexpectedly consistent; injection broken?"
+    assert inside[True] > 0.9

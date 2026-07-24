@@ -38,6 +38,12 @@ class NavState:
     R: np.ndarray = field(default_factory=lambda: np.eye(3))  # body -> nav
     b_a: np.ndarray = field(default_factory=lambda: np.zeros(3))  # accel bias, m/s^2
     b_g: np.ndarray = field(default_factory=lambda: np.zeros(3))  # gyro bias, rad/s
+    # Scale-factor estimates (dimensionless), used by the 24-state filter.
+    # Zero means "trust the datasheet gain of exactly 1", which is what the
+    # 15-state filter silently assumes; keeping them here (rather than in the
+    # filter) means the mechanization applies its own best sensor correction.
+    s_a: np.ndarray = field(default_factory=lambda: np.zeros(3))
+    s_g: np.ndarray = field(default_factory=lambda: np.zeros(3))
 
     def copy(self) -> NavState:
         return replace(
@@ -47,6 +53,8 @@ class NavState:
             R=self.R.copy(),
             b_a=self.b_a.copy(),
             b_g=self.b_g.copy(),
+            s_a=self.s_a.copy(),
+            s_g=self.s_g.copy(),
         )
 
 
@@ -73,8 +81,12 @@ class Mechanizer:
         if dt <= 0.0:
             return state.copy()
 
-        f_b = imu.f - state.b_a
-        w_b = imu.w - state.b_g
+        # First-order scale correction: measured = (1+s)*true + b, so
+        # true ~ (1 - s)*(measured - b). Exact inversion divides by (1+s);
+        # at datasheet scale errors (<1 %) the difference is second order
+        # and the linear form keeps the error-state Jacobian consistent.
+        f_b = (1.0 - state.s_a) * (imu.f - state.b_a)
+        w_b = (1.0 - state.s_g) * (imu.w - state.b_g)
 
         # --- attitude -------------------------------------------------------
         # Body rate relative to the nav frame, expressed in body axes.
@@ -98,6 +110,12 @@ class Mechanizer:
             R=R_new,
             b_a=state.b_a.copy(),
             b_g=state.b_g.copy(),
+            # Random constants: carried, never propagated. Dropping them here
+            # is not a harmless default — it silently discards the filter's
+            # scale estimate every 10 ms while P keeps converging as though
+            # the estimate were being applied, which diverges the filter.
+            s_a=state.s_a.copy(),
+            s_g=state.s_g.copy(),
         )
 
     def transition_matrix(self, state: NavState, imu: ImuSample, tau_a: float, tau_g: float):

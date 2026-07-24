@@ -1,0 +1,10 @@
+{
+ "15-state": {
+  "pct_inside_3sigma": 0.2963917525773196,
+  "horiz_rms_m": 2.838964222164984
+ },
+ "24-state": {
+  "pct_inside_3sigma": 100.0,
+  "horiz_rms_m": 2.27238456645779
+ }
+}

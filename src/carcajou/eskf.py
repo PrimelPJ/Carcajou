@@ -37,6 +37,11 @@ IDX_V = slice(3, 6)
 IDX_TH = slice(6, 9)
 IDX_BA = slice(9, 12)
 IDX_BG = slice(12, 15)
+# 24-state extension (cfg.extended_state): accel/gyro scale factor and a
+# GNSS Gauss-Markov position error state.
+IDX_SA = slice(15, 18)
+IDX_SG = slice(18, 21)
+IDX_GM = slice(21, 24)
 
 
 @dataclass
@@ -56,6 +61,13 @@ class EskfConfig:
     # default is off. See update_vo_rotation.
     use_vo_rotation: bool = False
     use_map: bool = False
+    # Phase 3: extend the error state to 24 = 15 + [ds_a(3), ds_g(3), dgm(3)].
+    # Scale factor and axis gain error are what the README has blamed for
+    # covariance optimism since Phase 0; the GM state models time-correlated
+    # GNSS error (multipath) instead of pretending it is white. Off by
+    # default so every published table reproduces exactly; the consistency
+    # study in scripts/run_consistency.py is where this earns its keep.
+    extended_state: bool = False
     # ZUPT detector thresholds, tuned for a road vehicle at 100 Hz.
     zupt_window: int = 20
     zupt_accel_thresh: float = 0.25  # m/s^2, deviation of |f| from |g|
@@ -79,8 +91,12 @@ class Eskf:
         self.cfg = cfg
         self.state = state.copy()
         self.Qc = cfg.imu.process_noise()
+        self.n = 24 if cfg.extended_state else 15
+        # GNSS GM error estimate lives beside the NavState: it is receiver
+        # environment, not vehicle state, so NavState stays a pure INS state.
+        self.gm = np.zeros(3)
 
-        P = np.zeros((15, 15))
+        P = np.zeros((self.n, self.n))
         P[IDX_P, IDX_P] = np.eye(3) * cfg.p0_pos**2
         P[IDX_V, IDX_V] = np.eye(3) * cfg.p0_vel**2
         P[IDX_TH, IDX_TH] = np.diag(
@@ -88,6 +104,10 @@ class Eskf:
         )
         P[IDX_BA, IDX_BA] = np.eye(3) * cfg.imu.b0_a**2
         P[IDX_BG, IDX_BG] = np.eye(3) * cfg.imu.b0_g**2
+        if cfg.extended_state:
+            P[IDX_SA, IDX_SA] = np.eye(3) * cfg.imu.sf_a**2
+            P[IDX_SG, IDX_SG] = np.eye(3) * cfg.imu.sf_g**2
+            P[IDX_GM, IDX_GM] = np.eye(3) * cfg.gnss.sigma_gm**2
         self.P = P
 
         self._imu_buf: list[ImuSample] = []
@@ -105,17 +125,49 @@ class Eskf:
     def predict(self, imu: ImuSample, dt: float) -> None:
         if dt <= 0.0:
             return
-        F = self.mech.transition_matrix(self.state, imu, self.cfg.imu.tau_a, self.cfg.imu.tau_g)
-        G = self.mech.noise_gain(self.state)
+        F15 = self.mech.transition_matrix(self.state, imu, self.cfg.imu.tau_a, self.cfg.imu.tau_g)
+        G15 = self.mech.noise_gain(self.state)
+        if self.cfg.extended_state:
+            F = np.zeros((24, 24))
+            F[0:15, 0:15] = F15
+            # Scale-factor coupling. With measured = (1+s)*true + b, the
+            # residual specific-force error from ds_a is -diag(f_b) ds_a in
+            # the body frame, rotated into nav exactly like a bias error:
+            #   d(dv)/dt += -R diag(f_b) ds_a,  d(dtheta)/dt += -R diag(w_b) ds_g
+            # The states themselves are random constants (no dynamics, no
+            # process noise): a gain error does not wander in-run.
+            R = self.state.R
+            f_b = (1.0 - self.state.s_a) * (imu.f - self.state.b_a)
+            w_b = (1.0 - self.state.s_g) * (imu.w - self.state.b_g)
+            F[3:6, IDX_SA] = -R @ np.diag(f_b)
+            F[6:9, IDX_SG] = -R @ np.diag(w_b)
+            # GNSS GM error: first-order Gauss-Markov, tau from the receiver
+            # spec, driven so its stationary variance is sigma_gm^2.
+            tau = self.cfg.gnss.tau_gm
+            F[IDX_GM, IDX_GM] = -np.eye(3) / tau
+            G = np.zeros((24, 15))
+            G[0:15, 0:12] = G15
+            G[IDX_GM, 12:15] = np.eye(3)
+            q_gm = 2.0 * self.cfg.gnss.sigma_gm**2 / tau
+            Qc = np.zeros((15, 15))
+            Qc[0:12, 0:12] = self.Qc
+            Qc[12:15, 12:15] = np.eye(3) * q_gm
+        else:
+            F, G, Qc = F15, G15, self.Qc
 
-        Phi = np.eye(15) + F * dt + 0.5 * (F @ F) * dt * dt
-        Qd_inst = G @ self.Qc @ G.T
+        Phi = np.eye(self.n) + F * dt + 0.5 * (F @ F) * dt * dt
+        Qd_inst = G @ Qc @ G.T
         # Trapezoidal van Loan approximation. Cheap, and stable at 100 Hz.
         Qd = 0.5 * (Phi @ Qd_inst @ Phi.T + Qd_inst) * dt
 
         self.P = Phi @ self.P @ Phi.T + Qd
         self.P = 0.5 * (self.P + self.P.T)
         self.state = self.mech.propagate(self.state, imu, dt)
+        if self.cfg.extended_state:
+            # The nominal GM estimate decays with the same time constant its
+            # error model assumes; an estimate of a mean-reverting process
+            # that never reverts contradicts its own covariance.
+            self.gm = self.gm * float(np.exp(-dt / self.cfg.gnss.tau_gm))
 
         self._imu_buf.append(imu)
         if len(self._imu_buf) > self.cfg.zupt_window:
@@ -143,7 +195,7 @@ class Eskf:
         dx = K @ r
 
         # Joseph form: stays positive definite even with a badly conditioned S.
-        I_KH = np.eye(15) - K @ H
+        I_KH = np.eye(self.n) - K @ H
         self.P = I_KH @ self.P @ I_KH.T + K @ R @ K.T
         self.P = 0.5 * (self.P + self.P.T)
 
@@ -159,23 +211,35 @@ class Eskf:
         self.state.R = orthonormalize(exp_so3(dtheta) @ self.state.R)
         self.state.b_a = self.state.b_a + dx[IDX_BA]
         self.state.b_g = self.state.b_g + dx[IDX_BG]
+        if self.cfg.extended_state:
+            self.state.s_a = self.state.s_a + dx[IDX_SA]
+            self.state.s_g = self.state.s_g + dx[IDX_SG]
+            self.gm = self.gm + dx[IDX_GM]
 
         # Reset Jacobian: the attitude error frame just moved.
-        G = np.eye(15)
+        G = np.eye(self.n)
         G[IDX_TH, IDX_TH] = np.eye(3) - 0.5 * skew(dtheta)
         self.P = G @ self.P @ G.T
 
     # -------------------------------------------------------------- aiding
     def update_gnss_position(self, p_meas: np.ndarray, R: np.ndarray | None = None) -> bool:
-        H = np.zeros((3, 15))
+        H = np.zeros((3, self.n))
         H[:, IDX_P] = np.eye(3)
         r = np.asarray(p_meas, float) - self.state.p
+        if self.cfg.extended_state:
+            # Measured = true + gm + white: the innovation carries the GM
+            # estimate and H exposes the GM error alongside position, so
+            # correlated receiver error is attributed to a state with the
+            # right time constant instead of being averaged into position
+            # as if it were white. This is the whole mechanism.
+            H[:, IDX_GM] = np.eye(3)
+            r = r - self.gm
         ok = self._update(H, r, self.cfg.gnss.R_position() if R is None else R)
         self.stats["gnss_applied" if ok else "gnss_rejected"] += 1
         return ok
 
     def update_gnss_velocity(self, v_meas: np.ndarray, R: np.ndarray | None = None) -> bool:
-        H = np.zeros((3, 15))
+        H = np.zeros((3, self.n))
         H[:, IDX_V] = np.eye(3)
         r = np.asarray(v_meas, float) - self.state.v
         return self._update(H, r, self.cfg.gnss.R_velocity() if R is None else R)
@@ -202,7 +266,7 @@ class Eskf:
         return self._static
 
     def update_zupt(self) -> bool:
-        H = np.zeros((3, 15))
+        H = np.zeros((3, self.n))
         H[:, IDX_V] = np.eye(3)
         r = -self.state.v
         ok = self._update(H, r, np.eye(3) * self.cfg.zupt_sigma**2)
@@ -214,7 +278,7 @@ class Eskf:
         Rbn = self.state.R
         v_b = Rbn.T @ self.state.v
         sel = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])  # body y and z
-        H = np.zeros((2, 15))
+        H = np.zeros((2, self.n))
         H[:, IDX_V] = sel @ Rbn.T
         H[:, IDX_TH] = sel @ Rbn.T @ skew(self.state.v)
         r = -sel @ v_b
@@ -240,7 +304,7 @@ class Eskf:
         and that is the failure mode you want.
         """
         Rbn = self.state.R
-        H = np.zeros((3, 15))
+        H = np.zeros((3, self.n))
         H[:, IDX_V] = Rbn.T
         H[:, IDX_TH] = Rbn.T @ skew(self.state.v)
         r = np.asarray(v_b_meas, float) - Rbn.T @ self.state.v
@@ -282,7 +346,7 @@ class Eskf:
         G_corr = np.asarray(G_raw, float) @ exp_so3(-self.state.b_g * T)
         dR_pred = G_corr.T  # matches dR_meas = R_curr^T R_prev
         r = log_so3(dR_pred.T @ np.asarray(dR_b_meas, float))
-        H = np.zeros((3, 15))
+        H = np.zeros((3, self.n))
         H[:, IDX_BG] = np.eye(3) * dt
         Rm = np.asarray(R_rot, float) + np.eye(3) * (self.cfg.imu.arw**2 * dt)
         Rm = Rm * self.cfg.vo_sigma_scale**2 + np.eye(3) * 1e-10
@@ -299,7 +363,7 @@ class Eskf:
         absolute one, and the filter consumes it through the same 3-DOF
         measurement model GNSS uses, gate and all.
         """
-        H = np.zeros((3, 15))
+        H = np.zeros((3, self.n))
         H[:, IDX_P] = np.eye(3)
         r = np.asarray(p_meas, float) - self.state.p
         # Wider gate than GNSS, deliberately. The matcher's own acceptance
@@ -326,7 +390,7 @@ class Eskf:
         where NHC's observability is weakest.
         """
         r = log_so3(np.asarray(R_meas, float) @ self.state.R.T)
-        H = np.zeros((3, 15))
+        H = np.zeros((3, self.n))
         H[:, IDX_TH] = np.eye(3)
         ok = self._update(H, r, np.asarray(R, float), gate_scale=25.0)
         self.stats["map_rot_applied" if ok else "map_rot_rejected"] += 1
