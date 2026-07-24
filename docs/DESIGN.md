@@ -173,7 +173,17 @@ plausible-looking drift curve could just as easily be an integration bug.
 These are stated because a navigation filter that hides them is not usable by
 anyone downstream.
 
-**The horizontal covariance is mildly optimistic.** Measured on the aided pass,
+**The horizontal covariance is mildly optimistic.**
+*Status: closed in Phase 3.* The analysis below was written when the defect
+was open and is kept because it predicted the fix. The 24-state extension
+(`EskfConfig.extended_state`: accel/gyro scale factor as random constants,
+GNSS position error as first-order Gauss-Markov) implements causes 1 and 2;
+with those errors injected by the simulator, 3-sigma containment goes from
+0.3 % (15-state, confidently wrong) to 100 % against a nominal 99.7
+(`scripts/run_consistency.py`, asserted in CI). Cause 3 (lever arm) and axis
+misalignment remain unmodelled and unclaimed.
+
+Original analysis: measured on the aided pass,
 roughly 95 to 98 percent of epochs fall inside the reported 3-sigma envelope,
 against a nominal 99.7. The vertical channel is consistent. Three causes, in
 descending order of contribution:

@@ -161,9 +161,12 @@ integration bug.
 git clone https://github.com/PrimelPJ/carcajou && cd carcajou
 pip install -e ".[dev,plots]"
 
-pytest -q                          # 16 tests, ~15 s
-python scripts/run_benchmark.py    # full sweep, ~20 min on 4 cores
+pytest -q                          # 32 tests, ~50 s
+python scripts/run_benchmark.py    # Phase 0 sweep, ~20 min on 4 cores
 python scripts/run_benchmark.py --laps 2 --seeds 1 --imu industrial-mems  # ~1 min
+python scripts/run_vision_ablation.py   # Phase 1: VO mask-on/mask-off rows
+python scripts/run_lidar_ablation.py    # Phase 2: scan-to-map rows
+python scripts/run_consistency.py       # Phase 3: 15- vs 24-state 3-sigma claim
 ```
 
 Or with Docker:
