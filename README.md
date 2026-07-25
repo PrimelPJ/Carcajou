@@ -2,10 +2,6 @@
 
 **GNSS-denied vehicle navigation: strapdown INS, error-state Kalman filtering, and a drift benchmark that reports the number vendors are actually held to.**
 
-[![ci](https://github.com/PrimelPJ/Carcajou/actions/workflows/ci.yml/badge.svg)](https://github.com/PrimelPJ/Carcajou/actions/workflows/ci.yml)
-![python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue)
-![license](https://img.shields.io/badge/license-MIT-green)
-
 When a vehicle drives into a tunnel, an underground parkade or a downtown
 canyon, GNSS stops being an answer. What happens next is decided entirely by
 the inertial navigation system and whatever constraints you can afford to add
