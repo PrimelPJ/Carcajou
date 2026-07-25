@@ -32,6 +32,15 @@ class OutageResult:
             return float("nan")
         return 100.0 * self.final_error_horizontal / self.distance
 
+    def summary_str(self) -> str:
+        """One-line human-readable summary for logging."""
+        return (
+            f"t={self.t_start:.0f}s dur={self.duration:.0f}s "
+            f"dist={self.distance:.0f}m "
+            f"h_err={self.final_error_horizontal:.2f}m "
+            f"drift={self.drift_pct:.3f}%"
+        )
+
 
 def horizontal(err: np.ndarray) -> np.ndarray:
     return np.linalg.norm(err[..., :2], axis=-1)
