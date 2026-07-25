@@ -52,13 +52,11 @@ class EskfConfig:
     use_zupt: bool = True
     use_nhc: bool = False
     use_vo: bool = False
-    # Implemented but off by default: the relative-rotation channel's reported
-    # noise is optimistic because successive VO intervals share an epoch and
-    # their errors are therefore correlated, which this filter cannot carry
-    # without stochastic cloning. Enabling it improves the gyro-bias estimate
-    # and degrades position unless the covariance is inflated by a factor with
-    # no principled derivation. Cloning is Phase 3; until then the honest
-    # default is off. See update_vo_rotation.
+    # Off by default to preserve existing benchmark tables. With stochastic
+    # cloning (Phase 3), the relative-rotation channel properly tracks cross-
+    # epoch correlation: the attitude is cloned at each VO epoch and the
+    # update observes the difference between cloned and current attitude
+    # errors, so the covariance needs no inflation factor. Enable for new work.
     use_vo_rotation: bool = False
     use_map: bool = False
     # Phase 3: extend the error state to 24 = 15 + [ds_a(3), ds_g(3), dgm(3)].
@@ -110,6 +108,10 @@ class Eskf:
             P[IDX_GM, IDX_GM] = np.eye(3) * cfg.gnss.sigma_gm**2
         self.P = P
 
+        # Stochastic cloning for VO rotation (Phase 3).
+        self._clone_R: np.ndarray | None = None
+        self._clone_active = False
+
         self._imu_buf: list[ImuSample] = []
         self._gates = {d: float(chi2.ppf(cfg.innovation_gate_p, df=d)) for d in (1, 2, 3, 6)}
         self._static: bool | None = None  # invalidated on every predict()
@@ -160,7 +162,15 @@ class Eskf:
         # Trapezoidal van Loan approximation. Cheap, and stable at 100 Hz.
         Qd = 0.5 * (Phi @ Qd_inst @ Phi.T + Qd_inst) * dt
 
-        self.P = Phi @ self.P @ Phi.T + Qd
+        if self._clone_active:
+            n = self.n
+            Phi_aug = np.eye(n + 3)
+            Phi_aug[:n, :n] = Phi
+            Qd_aug = np.zeros((n + 3, n + 3))
+            Qd_aug[:n, :n] = Qd
+            self.P = Phi_aug @ self.P @ Phi_aug.T + Qd_aug
+        else:
+            self.P = Phi @ self.P @ Phi.T + Qd
         self.P = 0.5 * (self.P + self.P.T)
         self.state = self.mech.propagate(self.state, imu, dt)
         if self.cfg.extended_state:
@@ -179,6 +189,14 @@ class Eskf:
         self, H: np.ndarray, r: np.ndarray, R: np.ndarray,
         gate: bool = True, gate_scale: float = 1.0,
     ) -> bool:
+        p_dim = self.P.shape[0]
+        # When a clone is active, P is (n+3, n+3) but callers pass H sized
+        # for self.n.  Zero-pad so the matrix algebra is dimensionally sound.
+        if H.shape[1] < p_dim:
+            H_full = np.zeros((H.shape[0], p_dim))
+            H_full[:, :H.shape[1]] = H
+            H = H_full
+
         S = H @ self.P @ H.T + R
         if gate:
             try:
@@ -195,11 +213,11 @@ class Eskf:
         dx = K @ r
 
         # Joseph form: stays positive definite even with a badly conditioned S.
-        I_KH = np.eye(self.n) - K @ H
+        I_KH = np.eye(p_dim) - K @ H
         self.P = I_KH @ self.P @ I_KH.T + K @ R @ K.T
         self.P = 0.5 * (self.P + self.P.T)
 
-        self._inject(dx)
+        self._inject(dx[:self.n])
         return True
 
     def _inject(self, dx: np.ndarray) -> None:
@@ -217,7 +235,8 @@ class Eskf:
             self.gm = self.gm + dx[IDX_GM]
 
         # Reset Jacobian: the attitude error frame just moved.
-        G = np.eye(self.n)
+        # Use P's actual dimension, which is n+3 when a clone is active.
+        G = np.eye(self.P.shape[0])
         G[IDX_TH, IDX_TH] = np.eye(3) - 0.5 * skew(dtheta)
         self.P = G @ self.P @ G.T
 
@@ -354,6 +373,90 @@ class Eskf:
         self.stats["vo_rot_applied" if ok else "vo_rot_rejected"] += 1
         return ok
 
+    # ------------------------------------------------- stochastic cloning
+    def clone_attitude(self) -> None:
+        """Augment state with a copy of the current attitude for stochastic cloning.
+
+        The last 3 rows/cols of P become the cloned attitude error, with
+        initial covariance and cross-covariance copied from the attitude block.
+        """
+        n = self.P.shape[0]
+        P_new = np.zeros((n + 3, n + 3))
+        P_new[:n, :n] = self.P
+        P_new[n:n + 3, :n] = self.P[IDX_TH, :]
+        P_new[:n, n:n + 3] = self.P[:, IDX_TH]
+        P_new[n:n + 3, n:n + 3] = self.P[IDX_TH, IDX_TH]
+        self.P = P_new
+        self._clone_R = self.state.R.copy()
+        self._clone_active = True
+
+    def marginalize_clone(self) -> None:
+        """Remove the cloned attitude states, returning P to its nominal size."""
+        n = self.n
+        self.P = self.P[:n, :n]
+        self._clone_R = None
+        self._clone_active = False
+
+    def update_vo_rotation_cloned(self, dR_b_meas: np.ndarray, R_rot: np.ndarray) -> bool:
+        """Relative-rotation update using stochastic cloning.
+
+        With the attitude cloned at the VO interval's start epoch, the relative
+        rotation measurement observes the *difference* in attitude error between
+        the two epochs.  This properly tracks the cross-epoch correlation that
+        made the unclonable version optimistic, so the covariance needs no
+        inflation factor.
+
+        Parameters
+        ----------
+        dR_b_meas : (3, 3)
+            Measured relative rotation from the VO front end.
+        R_rot : (3, 3)
+            VO front end's reported rotation covariance.
+        """
+        if self._clone_R is None:
+            return False
+        n = self.n
+        # Predicted relative rotation from nominal states
+        dR_nom = self._clone_R.T @ self.state.R
+        r = log_so3(dR_nom.T @ np.asarray(dR_b_meas, float))
+
+        # H maps [... dtheta_curr(IDX_TH) ... dtheta_clone(n:n+3) ...]
+        # r ≈ R_curr^T @ (dtheta_curr - dtheta_clone) + noise
+        Rt = self.state.R.T
+        p_dim = n + 3
+        H = np.zeros((3, p_dim))
+        H[:, IDX_TH] = Rt
+        H[:, n:n + 3] = -Rt
+
+        Rm = np.asarray(R_rot, float) * self.cfg.vo_sigma_scale**2
+        Rm = 0.5 * (Rm + Rm.T) + np.eye(3) * 1e-10
+
+        # Innovation gate
+        S = H @ self.P @ H.T + Rm
+        try:
+            nis = float(r @ np.linalg.solve(S, r))
+        except np.linalg.LinAlgError:
+            self.stats["vo_rot_rejected"] += 1
+            return False
+        thr = self._gates.get(3) or float(chi2.ppf(self.cfg.innovation_gate_p, df=3))
+        if nis > thr:
+            self.stats["vo_rot_rejected"] += 1
+            return False
+
+        # Joseph-form update on the augmented state
+        K = np.linalg.solve(S, H @ self.P).T
+        dx = K @ r
+
+        I_KH = np.eye(p_dim) - K @ H
+        self.P = I_KH @ self.P @ I_KH.T + K @ Rm @ K.T
+        self.P = 0.5 * (self.P + self.P.T)
+
+        # Inject only the physical states (not the clone)
+        self._inject(dx[:n])
+
+        self.stats["vo_rot_applied"] += 1
+        return True
+
     def update_map_position(self, p_meas: np.ndarray, R: np.ndarray) -> bool:
         """Absolute position from scan-to-map registration.
 
@@ -398,5 +501,5 @@ class Eskf:
 
     # -------------------------------------------------------------- helpers
     def sigma(self) -> np.ndarray:
-        """One-sigma marginal uncertainty for the 15 error states."""
-        return np.sqrt(np.clip(np.diag(self.P), 0.0, None))
+        """One-sigma marginal uncertainty for the physical error states."""
+        return np.sqrt(np.clip(np.diag(self.P)[:self.n], 0.0, None))

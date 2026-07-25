@@ -158,17 +158,53 @@ That identity means every metre of drift reported by the benchmark is
 attributable to an injected sensor error and nothing else. Without it, a
 plausible-looking drift curve could just as easily be an integration bug.
 
-## 8. Roadmap
+## 8. Stochastic cloning for VO rotation
 
-- **Phase 1** Stereo visual odometry as a velocity/pose update, with a
-  segmentation mask so features on moving vehicles are never tracked. Ablate
-  the mask on and off.
-- **Phase 2** LiDAR odometry (NDT) against a locally built map with dynamic
-  returns removed; persist static landmarks and add a map-matching update.
-- **Phase 3** ROS2 Humble nodes, C++/Eigen port of the filter hot loop,
-  hardware-in-the-loop replay.
+Consecutive VO intervals share an epoch: frame `k` is the "current" epoch of
+interval `[k-1, k]` and the "previous" epoch of interval `[k, k+1]`. The
+attitude error at epoch `k` therefore appears in both measurements, making
+them correlated. Treating them as independent makes the covariance optimistic.
 
-## 9. Known limitations, measured
+Stochastic cloning resolves this. At each VO epoch, the current attitude error
+state is **cloned**: the covariance matrix is augmented from `(n, n)` to
+`(n+3, n+3)`, where the last three states are a copy of the attitude error at
+clone time. During prediction, these clone states do not evolve (the clone is a
+historical snapshot), but their cross-covariance with the live states propagates
+correctly through the augmented transition matrix.
+
+When the next VO measurement arrives, the relative rotation is modelled as:
+
+```
+r = Log(dR_nom^T dR_meas),   dR_nom = R_clone^T R_curr
+r ≈ R_curr^T (dtheta_curr - dtheta_clone) + noise
+```
+
+So `H` is `R_curr^T` on the live attitude block and `-R_curr^T` on the clone
+block. After the update, the clone is marginalized (dropped from P) and a fresh
+clone is taken for the next interval.
+
+This is the standard technique for handling correlated sequential measurements
+in an EKF. The implementation adds `clone_attitude()`,
+`marginalize_clone()`, and `update_vo_rotation_cloned()` to `Eskf`, and the
+pipeline manages the clone lifecycle automatically when
+`EskfConfig.use_vo_rotation` is enabled.
+
+## 9. Roadmap
+
+- **Phase 1 — done.** Stereo visual odometry with segmentation mask, ablated
+  mask-on/mask-off.
+- **Phase 2 — done.** Scan-to-map localization with dynamic removal.
+- **Phase 3 — done.** 24-state extension (scale factor + GNSS Gauss-Markov)
+  closing covariance optimism, and stochastic cloning for the VO rotation
+  channel.
+
+### Future infrastructure
+
+- C++/Eigen port of the filter hot loop.
+- ROS2 Humble packaging.
+- Hardware-in-the-loop replay.
+
+## 10. Known limitations, measured
 
 These are stated because a navigation filter that hides them is not usable by
 anyone downstream.

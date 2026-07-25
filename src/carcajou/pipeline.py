@@ -138,7 +138,11 @@ def run_aided_pass(
             if m is not None:
                 ekf.update_vo_velocity(m.v_b, m.R_v)
                 if cfg.use_vo_rotation:
-                    ekf.update_vo_rotation(m.dR_b, _gyro_delta(imus, m, dt), m.dt, m.R_rot)
+                    if ekf._clone_active:
+                        ekf.update_vo_rotation_cloned(m.dR_b, m.R_rot)
+                        ekf.marginalize_clone()
+                    # Clone current attitude for the next VO interval
+                    ekf.clone_attitude()
         if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
             mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)
             if mm is not None:
@@ -152,8 +156,11 @@ def run_aided_pass(
             captured[k + 1] = (ekf.state.R.copy(), ekf.state.p.copy())
 
         while snap_i < len(snap_targets) and imu.t >= snap_targets[snap_i] - 1e-9:
+            # Snapshot the physical-state P (n x n), excluding any active
+            # clone augmentation so restoring always gets a clean shape.
+            snap_P = ekf.P[:ekf.n, :ekf.n]
             snapshots.append(
-                Snapshot(t=imu.t, index=k + 1, filter_state=copy.deepcopy((ekf.state, ekf.P)))
+                Snapshot(t=imu.t, index=k + 1, filter_state=copy.deepcopy((ekf.state, snap_P)))
             )
             snap_i += 1
 
@@ -204,7 +211,11 @@ def run_outage(
             if m is not None:
                 ekf.update_vo_velocity(m.v_b, m.R_v)
                 if cfg.use_vo_rotation:
-                    ekf.update_vo_rotation(m.dR_b, _gyro_delta(imus, m, dt), m.dt, m.R_rot)
+                    if ekf._clone_active:
+                        ekf.update_vo_rotation_cloned(m.dR_b, m.R_rot)
+                        ekf.marginalize_clone()
+                    # Clone current attitude for the next VO interval
+                    ekf.clone_attitude()
         if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
             mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)
             if mm is not None:

@@ -46,10 +46,12 @@ ABLATIONS = {
 }
 
 
-def build_cfgs(imu_name: str, gnss_name: str):
+def build_cfgs(imu_name: str, gnss_name: str, extended_state: bool = False):
     imu, gnss = IMU_GRADES[imu_name], GNSS_GRADES[gnss_name]
-    aided = EskfConfig(imu=imu, gnss=gnss, use_zupt=True, use_nhc=True)
-    outage = {k: EskfConfig(imu=imu, gnss=gnss, **v) for k, v in ABLATIONS.items()}
+    aided = EskfConfig(imu=imu, gnss=gnss, use_zupt=True, use_nhc=True,
+                       extended_state=extended_state)
+    outage = {k: EskfConfig(imu=imu, gnss=gnss, extended_state=extended_state, **v)
+              for k, v in ABLATIONS.items()}
     return aided, outage
 
 
@@ -77,6 +79,8 @@ def main() -> int:
         help="settling time before the first outage window; clamped to a "
         "third of the trajectory so short runs still produce windows",
     )
+    ap.add_argument("--extended-state", action="store_true",
+                    help="use the 24-state ESKF (scale factor + GNSS GM)")
     ap.add_argument("--out", default="results")
     ap.add_argument("--no-plots", action="store_true")
     args = ap.parse_args()
@@ -105,7 +109,8 @@ def main() -> int:
             rng = np.random.default_rng(1000 + seed)
             imus, _, _ = corrupt_imu(clean, IMU_GRADES[imu_name], rng, traj.dt)
             fixes = simulate_gnss(traj, GNSS_GRADES[args.gnss], rng)
-            aided_cfg, outage_cfgs = build_cfgs(imu_name, args.gnss)
+            aided_cfg, outage_cfgs = build_cfgs(imu_name, args.gnss,
+                                               extended_state=args.extended_state)
 
             t0 = time.time()
             pass_result, study = run_outage_study(

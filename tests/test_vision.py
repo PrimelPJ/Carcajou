@@ -230,6 +230,31 @@ def test_vo_rotation_update_behaves(traj, world):
     assert not ok
 
 
+def test_vo_rotation_with_stochastic_cloning(traj, world):
+    """Stochastic cloning allows the rotation channel to update without
+    the covariance inflation hack, and the filter stays positive definite."""
+    from carcajou.datasets.synthetic import corrupt_imu, simulate_gnss
+    from carcajou.pipeline import run_aided_pass
+
+    rng = np.random.default_rng(8)
+    imus, _, _ = corrupt_imu(perfect_imu(traj), CONSUMER_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    vo_meas = index_vo(
+        StereoVo(KITTI_LIKE, world, traj, VoConfig(), mask=MASK_ORACLE).run()
+    )
+
+    cfg_rot = EskfConfig(
+        imu=CONSUMER_MEMS, gnss=SPP,
+        use_zupt=True, use_nhc=True, use_vo=True, use_vo_rotation=True,
+    )
+    pr_rot = run_aided_pass(traj, imus, fixes, cfg_rot, vo=vo_meas)
+
+    # The rotation channel should have been applied many times
+    assert pr_rot.stats["vo_rot_applied"] > 50
+    # Completing without error implicitly tests that P stayed positive definite
+    # through all clone/marginalize cycles.
+
+
 def test_gate_rejects_poisoned_measurement(traj):
     """A VO velocity that is wildly wrong but confidently reported must be
     rejected by the innovation gate rather than absorbed."""

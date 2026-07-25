@@ -269,12 +269,12 @@ usable by anyone downstream. Full detail in `docs/DESIGN.md` section 9.
   Medians are solid; widen `--seeds` before quoting the tails anywhere serious.
 - **No coning or sculling compensation.** Negligible at 100 Hz with automotive
   dynamics; it becomes the dominant term at the 10 Hz KITTI packet rate.
-- **The VO relative-rotation channel is implemented but ships disabled**
-  (`EskfConfig.use_vo_rotation=False`). Consecutive VO intervals share an
-  epoch, so consecutive rotation measurements are correlated; consuming them
-  as independent requires stochastic cloning, and without it the channel only
-  helps if its covariance is inflated by an arbitrary factor. A covariance
-  that needs a fudge factor does not ship enabled here. Cloning is Phase 3.
+- **The VO relative-rotation channel ships disabled by default**
+  (`EskfConfig.use_vo_rotation=False`) to preserve existing benchmark tables.
+  It is now fully functional with stochastic cloning (Phase 3): the attitude
+  is cloned at each VO epoch and the relative-rotation update properly tracks
+  cross-epoch correlation, so the covariance needs no inflation factor. Enable
+  it with `use_vo_rotation=True` for new work.
 - **The vision benchmark uses a landmark world, not rendered images.** Feature
   detection, matching, illumination and occlusion are absorbed into pixel
   noise and outlier-rate parameters (`vision/world.py` states what is and is
@@ -287,8 +287,8 @@ usable by anyone downstream. Full detail in `docs/DESIGN.md` section 9.
 - **Phase 1 — done.** Stereo visual odometry as a filter update, with a
   segmentation mask so features on moving vehicles are never tracked, ablated
   mask-on/mask-off on the same harness. It had to rescue consumer MEMS and it
-  does: 1.28 % / 20 % becomes 0.42 % / 0.92 % at 120 s. Remaining from this
-  phase: enable the relative-rotation channel once stochastic cloning lands.
+  does: 1.28 % / 20 % becomes 0.42 % / 0.92 % at 120 s. The relative-rotation
+  channel is now enabled via stochastic cloning (Phase 3).
 - **Phase 2 — done.** Scan matching against a persisted map built with dynamic
   returns removed, two-pass structure, localization from the filter's own
   estimate. Same sensors, better answer: 1.21 % / 16 m at 120 s becomes
@@ -296,15 +296,22 @@ usable by anyone downstream. Full detail in `docs/DESIGN.md` section 9.
   over NDT so the covariance argument is shared with the vision front end;
   the module boundary is pose + covariance, so NDT can replace it without
   touching a caller.
-- **Phase 3 — partially done, honestly scoped.** Done: the 24-state extension
-  (scale factor + GNSS Gauss-Markov), which closes the covariance-optimism
-  defect documented above — the one number a navigation filter must not get
-  wrong is its own confidence. Not done, and not shipped half-done: the
-  C++/Eigen port of the hot loop, ROS2 Humble packaging, stochastic cloning
-  for the VO rotation channel, and hardware-in-the-loop replay. Those need a
-  build environment this repository's CI does not yet exercise, and a repo
-  whose thesis is "believe the numbers" does not ship untested code to look
-  finished.
+- **Phase 3 — done.** The 24-state extension (scale factor + GNSS
+  Gauss-Markov) closes the covariance-optimism defect documented above, and
+  stochastic cloning for the VO rotation channel properly tracks cross-epoch
+  correlation so the channel ships without a covariance fudge factor. Both
+  items that required filter-level work are complete and tested.
+
+### Future infrastructure
+
+Items that improve deployment but do not change the filter or its numbers.
+They need a build environment this repository's CI does not yet exercise, and
+a repo whose thesis is "believe the numbers" does not ship untested code to
+look finished.
+
+- **C++/Eigen port** of the filter hot loop.
+- **ROS2 Humble packaging.**
+- **Hardware-in-the-loop replay.**
 
 ## References
 

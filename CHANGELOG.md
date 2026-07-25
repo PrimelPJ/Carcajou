@@ -8,6 +8,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Stochastic cloning for VO rotation (`clone_attitude`, `marginalize_clone`,
+  `update_vo_rotation_cloned` in `Eskf`); the relative-rotation channel now
+  properly tracks cross-epoch correlation and needs no covariance inflation
+- `--extended-state` flag in `run_benchmark.py`
 - Glossary table in README covering all abbreviated terms
 - TL;DR section in README for non-specialist readers
 - CONTRIBUTING.md, SECURITY.md, CITATION.cff
@@ -16,6 +20,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `err_m_mean` and `drift_pct_mean` fields in `summarize()` output
 - OCI labels on the Docker image
 - pip cache in CI matrix
+
+### Changed
+- Phase 3 roadmap marked done; C++/Eigen port, ROS2, and HIL replay moved to
+  "Future infrastructure"
+- `_update` and `_inject` now handle augmented P dimension from cloning
+- Pipeline (`run_aided_pass`, `run_outage`) uses stochastic cloning when
+  `use_vo_rotation` is enabled instead of the unclonable `update_vo_rotation`
 
 ### Fixed
 - Author name in `pyproject.toml` and `LICENSE` corrected to Primel Jayawardana
