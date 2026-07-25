@@ -9,13 +9,25 @@ description = "GNSS-denied vehicle navigation: strapdown INS, error-state Kalman
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Primel J" }]
-keywords = ["gnss", "ins", "kalman-filter", "sensor-fusion", "navigation", "autonomous-vehicles"]
+authors = [{ name = "Primel Jayawardana" }]
+keywords = ["gnss", "ins", "kalman-filter", "sensor-fusion", "navigation", "autonomous-vehicles", "eskf", "lidar", "visual-odometry", "inertial-navigation"]
 classifiers = [
   "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
 ]
+
+[project.urls]
+Homepage = "https://github.com/PrimelPJ/Carcajou"
+Repository = "https://github.com/PrimelPJ/Carcajou"
+Issues = "https://github.com/PrimelPJ/Carcajou/issues"
 dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.optional-dependencies]
