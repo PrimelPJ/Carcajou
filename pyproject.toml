@@ -24,11 +24,12 @@ classifiers = [
   "Operating System :: OS Independent",
 ]
 
+dependencies = ["numpy>=1.24", "scipy>=1.10"]
+
 [project.urls]
 Homepage = "https://github.com/PrimelPJ/Carcajou"
 Repository = "https://github.com/PrimelPJ/Carcajou"
 Issues = "https://github.com/PrimelPJ/Carcajou/issues"
-dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.optional-dependencies]
 plots = ["matplotlib>=3.7"]
