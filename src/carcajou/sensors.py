@@ -113,7 +113,26 @@ IMU_GRADES = {s.name: s for s in (CONSUMER_MEMS, INDUSTRIAL_MEMS, TACTICAL)}
 
 @dataclass(frozen=True)
 class GnssSpec:
-    """GNSS receiver error model."""
+    """GNSS receiver error model.
+
+    Attributes
+    ----------
+    name : str
+        Grade identifier used as a dict key in ``GNSS_GRADES``.
+    sigma_horizontal : float
+        White-noise 1-sigma horizontal position error, metres.
+    sigma_vertical : float
+        White-noise 1-sigma vertical position error, metres.
+    sigma_velocity : float
+        Doppler-derived velocity 1-sigma, m/s.
+    rate_hz : float
+        Measurement update rate, Hz. Default 10 Hz (typical automotive GNSS).
+    sigma_gm : float
+        1-sigma of the time-correlated (Gauss-Markov) position error component.
+        Zero by default so existing tables are unaffected.
+    tau_gm : float
+        Gauss-Markov correlation time, seconds. Default 45 s (typical multipath).
+    """
 
     name: str
     sigma_horizontal: float  # m, 1-sigma
