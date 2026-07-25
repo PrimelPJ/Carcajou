@@ -1,10 +1,38 @@
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+
+# Testing / coverage
 .pytest_cache/
-.ruff_cache/
 .coverage
+htmlcov/
+.tox/
+
+# Linting
+.ruff_cache/
+.mypy_cache/
+
+# Build / packaging
 *.egg-info/
 build/
 dist/
+*.egg
+
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Data (large; not tracked)
 data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
