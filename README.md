@@ -161,7 +161,7 @@ integration bug.
 ## Quickstart
 
 ```bash
-git clone https://github.com/PrimelPJ/carcajou && cd carcajou
+git clone https://github.com/PrimelPJ/Carcajou && cd Carcajou
 pip install -e ".[dev,plots]"
 
 pytest -q                          # 32 tests, ~50 s
@@ -315,6 +315,53 @@ The formulation follows standard treatments, in particular Groves,
 injection and reset. Derivations in `docs/DESIGN.md` are worked from first
 principles so the sign conventions are verifiable rather than inherited.
 
+---
+
+## Glossary
+
+| Term | Stands for | Plain meaning |
+|---|---|---|
+| **GNSS** | Global Navigation Satellite System | GPS and equivalent satellite positioning (GPS, GLONASS, Galileo, BeiDou) |
+| **INS** | Inertial Navigation System | Dead-reckoning using accelerometers and gyroscopes only |
+| **IMU** | Inertial Measurement Unit | The sensor chip: 3-axis accelerometer + 3-axis gyroscope |
+| **MEMS** | Micro-Electro-Mechanical System | Silicon-etched sensor technology — cheap (consumer/industrial) vs. expensive (tactical) |
+| **ESKF** | Error-State Kalman Filter | A Kalman filter that estimates *errors in* the navigation state rather than the state itself |
+| **NHC** | Non-Holonomic Constraint | A car cannot slide sideways or fly — this rule is fed to the filter as a measurement |
+| **ZUPT** | Zero-velocity Update | When the vehicle is stopped, velocity must be zero — tells the filter to correct accelerometer bias |
+| **VO** | Visual Odometry | Estimating motion from a camera by tracking features frame-to-frame |
+| **ICP** | Iterative Closest Point | Algorithm that aligns two point clouds by minimizing point-to-point distance |
+| **NDT** | Normal Distributions Transform | Alternative to ICP for point cloud alignment; not used here but mentioned as a swap-in |
+| **RANSAC** | Random Sample Consensus | Outlier-rejection algorithm: fits a model to random subsets and keeps the best |
+| **MSAC** | M-estimator Sample Consensus | A variant of RANSAC with a smoother cost function, used in the VO front end |
+| **ONNX** | Open Neural Network Exchange | Standard format for exporting neural network models (used for the segmentation path) |
+| **NED** | North-East-Down | Coordinate frame where X points north, Y east, Z down — standard for aviation/navigation |
+| **WGS-84** | World Geodetic System 1984 | The ellipsoid model of Earth that GPS coordinates reference |
+| **ATE** | Absolute Trajectory Error | End-to-end position error metric |
+| **RMS** | Root Mean Square | Square root of the average of squared values — a common error summary |
+| **SPP** | Single Point Positioning | Basic GPS receiver grade; metre-level accuracy, no corrections |
+| **p95** | 95th percentile | The value that 95 % of measurements fall below — a tail metric |
+| **CI** | Continuous Integration | Automated test runs on every code push (GitHub Actions here) |
+| **KITTI** | Karlsruhe Institute of Technology and Toyota Technological Institute | A widely used autonomous driving dataset with camera, LiDAR, and GPS ground truth |
+| **ROS2** | Robot Operating System 2 | Middleware framework for robotics; mentioned as a future packaging target |
+
+---
+
+## TL;DR
+
+**The problem:** When a car goes into a tunnel, GPS stops working. The vehicle has to navigate on its own using only its IMU (the chip that measures acceleration and rotation). Raw IMU navigation drifts badly — about 70 metres of error in two minutes on a cheap sensor.
+
+**What this project does:** Builds an inertial navigation filter and a rigorous benchmark that measures exactly how much each technique helps.
+
+**Key results (2-minute GPS outage, automotive-grade sensor):**
+- IMU alone: **70 m** median error
+- + vehicle physics constraints (NHC + ZUPT): **2.9 m** — free, no extra hardware
+- + stereo camera (with moving-object masking): **< 1 %** drift — rescues cheap sensors
+- + LiDAR map matching: **0.15 m** — error stops growing entirely
+
+**Why trust the numbers:** The simulator is built so that a perfect sensor produces *exactly* zero drift (verified to machine precision). Every metre of error in the tables came from a sensor imperfection that was deliberately added — not from a bug.
+
+---
+
 ## License
 
-MIT.
+MIT — Copyright © 2026 Primel Jayawardana
