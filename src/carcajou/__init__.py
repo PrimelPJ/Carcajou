@@ -1,8 +1,16 @@
 """carcajou: a GNSS-denied navigation stack.
 
-Phase 0 scope: strapdown INS mechanization, a 15-state error-state Kalman
-filter with GNSS / ZUPT / NHC aiding, a self-consistent trajectory simulator,
-a KITTI loader, and the GNSS-outage drift benchmark everything is judged by.
+Phases completed
+----------------
+0  Strapdown INS mechanization, 15-state ESKF with GNSS / ZUPT / NHC aiding,
+   self-consistent trajectory simulator, KITTI loader, outage drift benchmark.
+1  Stereo visual odometry (VO) as an ESKF measurement update; semantic
+   segmentation mask removes dynamic-object correspondences before pose
+   estimation; ablated mask-on / mask-off on the same benchmark harness.
+2  LiDAR scan-to-map localization: map built on a GNSS-aided pass with dynamic
+   returns removed, then used for bounded-error localization on a second pass.
+3  24-state ESKF extension (accel/gyro scale factor + GNSS Gauss-Markov state)
+   that closes the covariance-optimism defect; 15-state tables are unchanged.
 """
 
 from .eskf import Eskf, EskfConfig
