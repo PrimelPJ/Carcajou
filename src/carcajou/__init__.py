@@ -20,6 +20,7 @@ from .sensors import GNSS_GRADES, IMU_GRADES, GnssSpec, ImuSpec
 
 __version__ = "0.1.0"
 __all__ = [
+    "__version__",
     "Eskf",
     "EskfConfig",
     "ImuSample",
