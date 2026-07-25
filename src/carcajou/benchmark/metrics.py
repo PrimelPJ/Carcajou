@@ -59,5 +59,7 @@ def summarize(results: list[OutageResult]) -> dict[str, float]:
         "err_m_median": float(np.median(err)),
         "err_m_p95": float(np.percentile(err, 95)),
         "err_m_max": float(np.max(err)),
+        "err_m_mean": float(np.mean(err)),
+        "drift_pct_mean": float(np.mean(drift)) if len(drift) else float("nan"),
         "heading_err_deg_p95": float(np.percentile(np.abs(hdg), 95)),
     }
