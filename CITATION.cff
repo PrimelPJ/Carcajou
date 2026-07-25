@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use carcajou in academic work, please cite it as below."
+authors:
+  - family-names: Jayawardana
+    given-names: Primel
+title: "carcajou: GNSS-denied vehicle navigation with an outage drift benchmark"
+version: 0.1.0
+date-released: 2026-07-25
+url: "https://github.com/PrimelPJ/Carcajou"
+license: MIT
