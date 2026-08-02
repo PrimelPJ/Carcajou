@@ -453,12 +453,9 @@ class Eskf:
         if self._clone_R is None:
             return False
         n = self.n
-        # Predicted relative rotation from nominal states
         dR_nom = self._clone_R.T @ self.state.R
         r = log_so3(dR_nom.T @ np.asarray(dR_b_meas, float))
 
-        # H maps [... dtheta_curr(IDX_TH) ... dtheta_clone(n:n+3) ...]
-        # r ≈ R_curr^T @ (dtheta_curr - dtheta_clone) + noise
         Rt = self.state.R.T
         p_dim = n + 3
         H = np.zeros((3, p_dim))
@@ -468,31 +465,9 @@ class Eskf:
         Rm = np.asarray(R_rot, float) * self.cfg.vo_sigma_scale**2
         Rm = 0.5 * (Rm + Rm.T) + np.eye(3) * 1e-10
 
-        # Innovation gate
-        S = H @ self.P @ H.T + Rm
-        try:
-            nis = float(r @ np.linalg.solve(S, r))
-        except np.linalg.LinAlgError:
-            self.stats["vo_rot_rejected"] += 1
-            return False
-        thr = self._gates.get(3) or float(chi2.ppf(self.cfg.innovation_gate_p, df=3))
-        if nis > thr:
-            self.stats["vo_rot_rejected"] += 1
-            return False
-
-        # Joseph-form update on the augmented state
-        K = np.linalg.solve(S, H @ self.P).T
-        dx = K @ r
-
-        I_KH = np.eye(p_dim) - K @ H
-        self.P = I_KH @ self.P @ I_KH.T + K @ Rm @ K.T
-        self.P = 0.5 * (self.P + self.P.T)
-
-        # Inject only the physical states (not the clone)
-        self._inject(dx[:n])
-
-        self.stats["vo_rot_applied"] += 1
-        return True
+        ok = self._update(H, r, Rm)
+        self.stats["vo_rot_applied" if ok else "vo_rot_rejected"] += 1
+        return ok
 
     def update_map_position(self, p_meas: np.ndarray, R: np.ndarray) -> bool:
         """Absolute position from scan-to-map registration.

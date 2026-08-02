@@ -85,6 +85,46 @@ def _gyro_delta(imus: list[ImuSample], m: VoMeasurement, dt: float) -> np.ndarra
     return G
 
 
+def _step_aiding(
+    ekf: Eskf,
+    cfg: EskfConfig,
+    traj: Trajectory,
+    k: int,
+    vo: dict[int, VoMeasurement] | None,
+    map_matcher,
+) -> None:
+    """Apply all non-GNSS aiding updates for one epoch.
+
+    Shared by both the aided pass and the outage runner so that every
+    aiding source is wired in exactly once.
+    """
+    if cfg.use_zupt and ekf.is_stationary():
+        ekf.update_zupt()
+    if cfg.use_nhc and not ekf.is_stationary():
+        ekf.update_nhc()
+    if cfg.use_wss and not ekf.is_stationary():
+        v_fwd = float(traj.R[k + 1].T[0] @ traj.v[k + 1])
+        ekf.update_wss(v_fwd)
+    # VO is not gated on the static detector. A constant-velocity cruise
+    # is indistinguishable from standstill to an IMU-variance test (|f| ~ g,
+    # gyro ~ 0), so gating VO on it would drop the update on exactly the
+    # straight segments where forward drift accumulates fastest.
+    if cfg.use_vo and vo is not None:
+        m = vo.get(k + 1)
+        if m is not None:
+            ekf.update_vo_velocity(m.v_b, m.R_v)
+            if cfg.use_vo_rotation:
+                if ekf._clone_active:
+                    ekf.update_vo_rotation_cloned(m.dR_b, m.R_rot)
+                    ekf.marginalize_clone()
+                ekf.clone_attitude()
+    if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
+        mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)
+        if mm is not None:
+            ekf.update_map_position(mm.p_b, mm.cov_p)
+            ekf.update_map_rotation(mm.R_b, mm.cov_r)
+
+
 def run_aided_pass(
     traj: Trajectory,
     imus: list[ImuSample],
@@ -123,36 +163,7 @@ def run_aided_pass(
                 ekf.update_gnss_velocity(next_fix.v)
             next_fix = next(fix_iter, None)
 
-        if cfg.use_zupt and ekf.is_stationary():
-            ekf.update_zupt()
-        if cfg.use_nhc and not ekf.is_stationary():
-            ekf.update_nhc()
-        if cfg.use_wss and not ekf.is_stationary():
-            # Forward speed from truth, matching the synthetic benchmark's
-            # convention. A real system would source this from CAN wheel ticks.
-            v_fwd = float(traj.R[k + 1].T[0] @ traj.v[k + 1])
-            ekf.update_wss(v_fwd)
-        # VO is not gated on the static detector. A constant-velocity cruise
-        # is indistinguishable from standstill to an IMU-variance test (|f| ~ g,
-        # gyro ~ 0), so gating VO on it would drop the update on exactly the
-        # straight segments where forward drift accumulates fastest. The camera
-        # can tell 14 m/s from parked; let it say so, and let the chi-square
-        # gate arbitrate.
-        if cfg.use_vo and vo is not None:
-            m = vo.get(k + 1)
-            if m is not None:
-                ekf.update_vo_velocity(m.v_b, m.R_v)
-                if cfg.use_vo_rotation:
-                    if ekf._clone_active:
-                        ekf.update_vo_rotation_cloned(m.dR_b, m.R_rot)
-                        ekf.marginalize_clone()
-                    # Clone current attitude for the next VO interval
-                    ekf.clone_attitude()
-        if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
-            mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)
-            if mm is not None:
-                ekf.update_map_position(mm.p_b, mm.cov_p)
-                ekf.update_map_rotation(mm.R_b, mm.cov_r)
+        _step_aiding(ekf, cfg, traj, k, vo, map_matcher)
 
         p_hist[k + 1] = ekf.state.p
         v_hist[k + 1] = ekf.state.v
@@ -201,27 +212,7 @@ def run_outage(
     max_h = 0.0
     for k in range(start, stop):
         ekf.predict(imus[k], dt)
-        if cfg.use_zupt and ekf.is_stationary():
-            ekf.update_zupt()
-        if cfg.use_nhc and not ekf.is_stationary():
-            ekf.update_nhc()
-        if cfg.use_wss and not ekf.is_stationary():
-            v_fwd = float(traj.R[k + 1].T[0] @ traj.v[k + 1])
-            ekf.update_wss(v_fwd)
-        if cfg.use_vo and vo is not None:
-            m = vo.get(k + 1)
-            if m is not None:
-                ekf.update_vo_velocity(m.v_b, m.R_v)
-                if cfg.use_vo_rotation:
-                    if ekf._clone_active:
-                        ekf.update_vo_rotation_cloned(m.dR_b, m.R_rot)
-                        ekf.marginalize_clone()
-                    ekf.clone_attitude()
-        if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
-            mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)
-            if mm is not None:
-                ekf.update_map_position(mm.p_b, mm.cov_p)
-                ekf.update_map_rotation(mm.R_b, mm.cov_r)
+        _step_aiding(ekf, cfg, traj, k, vo, map_matcher)
         err = ekf.state.p - traj.p[k + 1]
         max_h = max(max_h, float(np.linalg.norm(err[:2])))
 
