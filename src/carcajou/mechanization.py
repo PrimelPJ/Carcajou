@@ -25,7 +25,7 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from .frames import earth_rate_ned, exp_so3, gravity_ned, orthonormalize, skew
+from .frames import dcm_to_euler, earth_rate_ned, exp_so3, gravity_ned, orthonormalize, skew
 
 
 @dataclass
@@ -49,6 +49,15 @@ class NavState:
     def speed(self) -> float:
         """Ground speed (horizontal), m/s."""
         return float(np.hypot(self.v[0], self.v[1]))
+
+    def __repr__(self) -> str:
+        r, p, y = dcm_to_euler(self.R)
+        return (
+            f"NavState(t={self.t:.3f}, "
+            f"p=[{self.p[0]:.2f}, {self.p[1]:.2f}, {self.p[2]:.2f}], "
+            f"speed={self.speed:.2f} m/s, "
+            f"rpy=[{np.degrees(r):.1f}, {np.degrees(p):.1f}, {np.degrees(y):.1f}] deg)"
+        )
 
     def copy(self) -> NavState:
         return replace(
