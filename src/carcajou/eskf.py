@@ -72,7 +72,10 @@ class EskfConfig:
     zupt_gyro_thresh: float = 0.02  # rad/s
     zupt_sigma: float = 0.02  # m/s
     nhc_sigma: float = 0.15  # m/s
+    use_wss: bool = False
+    wss_sigma: float = 0.5  # m/s, 1-sigma wheel speed uncertainty
     vo_sigma_scale: float = 1.0  # multiplier on the front end's reported R
+    lever_arm: np.ndarray | None = None  # body-frame IMU-to-GNSS antenna, m
     innovation_gate_p: float = 0.999  # chi-square gate confidence
     # Initial uncertainty
     p0_pos: float = 5.0
@@ -117,6 +120,7 @@ class Eskf:
         self._static: bool | None = None  # invalidated on every predict()
         self.stats = {
             "gnss_applied": 0, "gnss_rejected": 0, "zupt": 0, "nhc": 0,
+            "wss_applied": 0, "wss_rejected": 0,
             "vo_applied": 0, "vo_rejected": 0,
             "vo_rot_applied": 0, "vo_rot_rejected": 0,
             "map_pos_applied": 0, "map_pos_rejected": 0,
@@ -244,7 +248,17 @@ class Eskf:
     def update_gnss_position(self, p_meas: np.ndarray, R: np.ndarray | None = None) -> bool:
         H = np.zeros((3, self.n))
         H[:, IDX_P] = np.eye(3)
-        r = np.asarray(p_meas, float) - self.state.p
+        # Lever arm: GNSS antenna is at p_imu + R * l_b in the nav frame.
+        # With global/left error convention the linearised coupling is
+        #   d(p_gnss) = dp - skew(R l_b) dtheta
+        # so the H matrix gains an attitude block and the predicted
+        # measurement shifts by R l_b.
+        p_pred = self.state.p.copy()
+        if self.cfg.lever_arm is not None:
+            l_n = self.state.R @ np.asarray(self.cfg.lever_arm, float)
+            p_pred = p_pred + l_n
+            H[:, IDX_TH] = -skew(l_n)
+        r = np.asarray(p_meas, float) - p_pred
         if self.cfg.extended_state:
             # Measured = true + gm + white: the innovation carries the GM
             # estimate and H exposes the GM error alongside position, so
@@ -303,6 +317,29 @@ class Eskf:
         r = -sel @ v_b
         ok = self._update(H, r, np.eye(2) * self.cfg.nhc_sigma**2)
         self.stats["nhc"] += int(ok)
+        return ok
+
+    def update_wss(self, v_forward: float) -> bool:
+        """Forward velocity update from a wheel speed sensor.
+
+        The complement of NHC: NHC constrains the two body-frame velocity
+        components a wheeled vehicle cannot have (lateral and vertical), while
+        WSS observes the one it does have (forward). Together they fully
+        constrain body-frame velocity, which is the strongest aiding available
+        during a GNSS outage short of an absolute position fix.
+
+        ``v_forward`` is the signed forward speed in the body x-axis, m/s.
+        Positive means the vehicle is moving in the direction it faces.
+        """
+        Rbn = self.state.R
+        v_b = Rbn.T @ self.state.v
+        sel = np.array([[1.0, 0.0, 0.0]])  # body x (forward)
+        H = np.zeros((1, self.n))
+        H[:, IDX_V] = sel @ Rbn.T
+        H[:, IDX_TH] = sel @ Rbn.T @ skew(self.state.v)
+        r = np.array([v_forward]) - sel @ v_b
+        ok = self._update(H, r, np.array([[self.cfg.wss_sigma**2]]))
+        self.stats["wss_applied" if ok else "wss_rejected"] += 1
         return ok
 
     def update_vo_velocity(self, v_b_meas: np.ndarray, R: np.ndarray) -> bool:
@@ -503,3 +540,38 @@ class Eskf:
     def sigma(self) -> np.ndarray:
         """One-sigma marginal uncertainty for the physical error states."""
         return np.sqrt(np.clip(np.diag(self.P)[:self.n], 0.0, None))
+
+    def protection_levels(self, integrity_risk: float = 1e-5) -> tuple[float, float]:
+        """Horizontal and vertical protection levels in metres.
+
+        The protection level is the radius (horizontal) or half-interval
+        (vertical) that bounds the true position error with probability
+        ``1 - integrity_risk``.  It is the quantity an autonomous vehicle's
+        planner needs to decide whether the localisation is safe to act on.
+
+        Computed from the filter's own covariance, so the bound is only as
+        honest as the covariance is.  The 24-state extension exists precisely
+        to make that claim defensible.
+
+        Parameters
+        ----------
+        integrity_risk : float
+            Probability that the true error exceeds the protection level.
+            Default 1e-5 (automotive); aviation RAIM uses ~5.7e-8.
+
+        Returns
+        -------
+        hpl, vpl : float, float
+            Horizontal and vertical protection levels, metres.
+        """
+        # Horizontal: worst-case direction of the 2D position error ellipse.
+        P_h = self.P[0:2, 0:2]
+        lambda_max = float(np.max(np.linalg.eigvalsh(P_h)))
+        k2 = float(chi2.ppf(1.0 - integrity_risk, df=2))
+        hpl = float(np.sqrt(k2 * max(lambda_max, 0.0)))
+
+        # Vertical: scalar Gaussian bound on the down-axis error.
+        k1 = float(chi2.ppf(1.0 - integrity_risk, df=1))
+        vpl = float(np.sqrt(k1 * max(self.P[2, 2], 0.0)))
+
+        return hpl, vpl

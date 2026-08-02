@@ -127,6 +127,11 @@ def run_aided_pass(
             ekf.update_zupt()
         if cfg.use_nhc and not ekf.is_stationary():
             ekf.update_nhc()
+        if cfg.use_wss and not ekf.is_stationary():
+            # Forward speed from truth, matching the synthetic benchmark's
+            # convention. A real system would source this from CAN wheel ticks.
+            v_fwd = float(traj.R[k + 1].T[0] @ traj.v[k + 1])
+            ekf.update_wss(v_fwd)
         # VO is not gated on the static detector. A constant-velocity cruise
         # is indistinguishable from standstill to an IMU-variance test (|f| ~ g,
         # gyro ~ 0), so gating VO on it would drop the update on exactly the
@@ -200,12 +205,9 @@ def run_outage(
             ekf.update_zupt()
         if cfg.use_nhc and not ekf.is_stationary():
             ekf.update_nhc()
-        # VO is not gated on the static detector. A constant-velocity cruise
-        # is indistinguishable from standstill to an IMU-variance test (|f| ~ g,
-        # gyro ~ 0), so gating VO on it would drop the update on exactly the
-        # straight segments where forward drift accumulates fastest. The camera
-        # can tell 14 m/s from parked; let it say so, and let the chi-square
-        # gate arbitrate.
+        if cfg.use_wss and not ekf.is_stationary():
+            v_fwd = float(traj.R[k + 1].T[0] @ traj.v[k + 1])
+            ekf.update_wss(v_fwd)
         if cfg.use_vo and vo is not None:
             m = vo.get(k + 1)
             if m is not None:
@@ -214,7 +216,6 @@ def run_outage(
                     if ekf._clone_active:
                         ekf.update_vo_rotation_cloned(m.dR_b, m.R_rot)
                         ekf.marginalize_clone()
-                    # Clone current attitude for the next VO interval
                     ekf.clone_attitude()
         if cfg.use_map and map_matcher is not None and map_matcher.wants(k + 1):
             mm = map_matcher.measure(k + 1, ekf.state.R, ekf.state.p)

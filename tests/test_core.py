@@ -203,3 +203,132 @@ def test_extended_state_restores_covariance_consistency():
         inside[ext] = float(np.mean((err <= bound)[3000:]))
     assert inside[False] < 0.5, "15-state unexpectedly consistent; injection broken?"
     assert inside[True] > 0.9
+
+
+# ---------------------------------------------------------- wheel speed aiding
+def test_wss_reduces_velocity_error(short_traj):
+    """Wheel speed aiding should bound forward velocity error during outage."""
+    traj = short_traj
+    rng = np.random.default_rng(20)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP, use_wss=True, wss_sigma=0.3)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    # Run without GNSS (outage), only wheel speed
+    for k, imu in enumerate(imus[:2000]):
+        ekf.predict(imu, traj.dt)
+        # Feed true forward speed as wheel speed measurement
+        v_fwd = float(traj.R[k + 1].T[0] @ traj.v[k + 1])
+        v_fwd += rng.normal(0, 0.3)  # add noise matching sigma
+        ekf.update_wss(v_fwd)
+
+    assert ekf.stats["wss_applied"] > 1000
+    # Forward velocity should be bounded
+    v_b = ekf.state.R.T @ ekf.state.v
+    v_b_true = traj.R[2000].T @ traj.v[2000]
+    assert abs(v_b[0] - v_b_true[0]) < 2.0, "WSS should bound forward velocity"
+
+
+# ------------------------------------------------------------- lever arm
+def test_lever_arm_improves_gnss_position(short_traj):
+    """With a lever arm configured, the GNSS update should correctly account
+    for the IMU-to-antenna offset."""
+    traj = short_traj
+    rng = np.random.default_rng(30)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+
+    lever_arm = np.array([1.5, 0.0, -0.5])  # antenna 1.5m forward, 0.5m up
+    # Simulate GNSS fixes at the antenna location, not the IMU
+    fixes = simulate_gnss(traj, SPP, rng)
+    for fix in fixes:
+        idx = int(round(fix.t / traj.dt))
+        idx = min(idx, len(traj.R) - 1)
+        fix.p = fix.p + traj.R[idx] @ lever_arm
+
+    # Filter WITH lever arm compensation
+    cfg_la = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP, lever_arm=lever_arm)
+    ekf_la = Eskf(Mechanizer(traj.lat0, traj.h0), cfg_la, traj.initial_state())
+    fi = 0
+    for imu in imus:
+        ekf_la.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf_la.update_gnss_position(fixes[fi].p)
+            fi += 1
+    err_la = np.linalg.norm(ekf_la.state.p - traj.p[-1])
+
+    # Filter WITHOUT lever arm compensation (should be worse)
+    cfg_no = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf_no = Eskf(Mechanizer(traj.lat0, traj.h0), cfg_no, traj.initial_state())
+    fi = 0
+    for imu in imus:
+        ekf_no.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf_no.update_gnss_position(fixes[fi].p)
+            fi += 1
+    err_no = np.linalg.norm(ekf_no.state.p - traj.p[-1])
+
+    assert err_la < err_no, (
+        f"lever arm compensation should reduce error: {err_la:.3f} vs {err_no:.3f}"
+    )
+
+
+# --------------------------------------------------------- protection levels
+def test_protection_levels_bound_error(short_traj):
+    """Protection levels should bound the actual position error."""
+    traj = short_traj
+    rng = np.random.default_rng(40)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    fi = 0
+    for imu in imus:
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            if cfg.use_gnss_velocity:
+                ekf.update_gnss_velocity(fixes[fi].v)
+            fi += 1
+
+    hpl, vpl = ekf.protection_levels(integrity_risk=1e-3)
+    err_h = float(np.linalg.norm(ekf.state.p[:2] - traj.p[-1][:2]))
+    err_v = float(abs(ekf.state.p[2] - traj.p[-1][2]))
+
+    # PLs must be positive and should bound the error at this integrity risk
+    assert hpl > 0.0
+    assert vpl > 0.0
+    assert err_h < hpl, f"horizontal error {err_h:.2f} exceeds HPL {hpl:.2f}"
+    assert err_v < vpl, f"vertical error {err_v:.2f} exceeds VPL {vpl:.2f}"
+
+
+def test_protection_levels_grow_during_outage(short_traj):
+    """Protection levels should increase when GNSS is unavailable."""
+    traj = short_traj
+    rng = np.random.default_rng(41)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    # Converge with GNSS for 2000 epochs
+    fi = 0
+    for imu in imus[:2000]:
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            ekf.update_gnss_velocity(fixes[fi].v)
+            fi += 1
+
+    hpl_before, _ = ekf.protection_levels()
+
+    # Run 1000 more epochs without GNSS (outage)
+    for imu in imus[2000:3000]:
+        ekf.predict(imu, traj.dt)
+
+    hpl_after, _ = ekf.protection_levels()
+    assert hpl_after > hpl_before, "HPL should grow during GNSS outage"
