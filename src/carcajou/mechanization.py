@@ -45,6 +45,11 @@ class NavState:
     s_a: np.ndarray = field(default_factory=lambda: np.zeros(3))
     s_g: np.ndarray = field(default_factory=lambda: np.zeros(3))
 
+    @property
+    def speed(self) -> float:
+        """Ground speed (horizontal), m/s."""
+        return float(np.hypot(self.v[0], self.v[1]))
+
     def copy(self) -> NavState:
         return replace(
             self,
