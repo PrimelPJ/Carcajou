@@ -74,6 +74,31 @@ def dcm_to_euler(R: np.ndarray) -> tuple[float, float, float]:
     return roll, pitch, yaw
 
 
+def dcm_to_quaternion(R: np.ndarray) -> np.ndarray:
+    """Convert a DCM to a unit quaternion ``[w, x, y, z]`` (Shepperd method).
+
+    Numerically stable for all orientations — picks the largest diagonal
+    element to avoid division by a near-zero trace.
+    """
+    tr = np.trace(R)
+    if tr > 0:
+        s = 2.0 * np.sqrt(tr + 1.0)
+        return np.array([0.25 * s, (R[2, 1] - R[1, 2]) / s,
+                         (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s])
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+        return np.array([(R[2, 1] - R[1, 2]) / s, 0.25 * s,
+                         (R[0, 1] + R[1, 0]) / s, (R[0, 2] + R[2, 0]) / s])
+    elif R[1, 1] > R[2, 2]:
+        s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+        return np.array([(R[0, 2] - R[2, 0]) / s, (R[0, 1] + R[1, 0]) / s,
+                         0.25 * s, (R[1, 2] + R[2, 1]) / s])
+    else:
+        s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+        return np.array([(R[1, 0] - R[0, 1]) / s, (R[0, 2] + R[2, 0]) / s,
+                         (R[1, 2] + R[2, 1]) / s, 0.25 * s])
+
+
 def orthonormalize(R: np.ndarray) -> np.ndarray:
     """Cheap Newton step back onto SO(3): ``R (3I - R^T R) / 2``.
 
