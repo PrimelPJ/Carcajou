@@ -14,7 +14,7 @@ Phases completed
 """
 
 from .eskf import Eskf, EskfConfig
-from .frames import LocalTangentPlane
+from .frames import LocalTangentPlane, dcm_to_quaternion
 from .mechanization import ImuSample, Mechanizer, NavState
 from .sensors import GNSS_GRADES, IMU_GRADES, GnssSpec, ImuSpec
 
@@ -27,6 +27,7 @@ __all__ = [
     "Mechanizer",
     "NavState",
     "LocalTangentPlane",
+    "dcm_to_quaternion",
     "ImuSpec",
     "GnssSpec",
     "IMU_GRADES",
