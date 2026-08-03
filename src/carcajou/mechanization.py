@@ -50,6 +50,17 @@ class NavState:
         """Ground speed (horizontal), m/s."""
         return float(np.hypot(self.v[0], self.v[1]))
 
+    @property
+    def heading(self) -> float:
+        """Heading (yaw) in degrees, clockwise from north."""
+        _, _, yaw = dcm_to_euler(self.R)
+        return float(np.degrees(yaw))
+
+    def attitude_deg(self) -> np.ndarray:
+        """Roll, pitch, yaw in degrees."""
+        r, p, y = dcm_to_euler(self.R)
+        return np.degrees(np.array([r, p, y]))
+
     def __repr__(self) -> str:
         r, p, y = dcm_to_euler(self.R)
         return (
