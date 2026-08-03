@@ -516,6 +516,10 @@ class Eskf:
         """One-sigma marginal uncertainty for the physical error states."""
         return np.sqrt(np.clip(np.diag(self.P)[:self.n], 0.0, None))
 
+    def position_sigma(self) -> np.ndarray:
+        """One-sigma position uncertainty ``[north, east, down]`` in metres."""
+        return np.sqrt(np.clip(np.diag(self.P)[0:3], 0.0, None))
+
     def protection_levels(self, integrity_risk: float = 1e-5) -> tuple[float, float]:
         """Horizontal and vertical protection levels in metres.
 
