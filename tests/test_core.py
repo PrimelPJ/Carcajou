@@ -332,3 +332,51 @@ def test_protection_levels_grow_during_outage(short_traj):
 
     hpl_after, _ = ekf.protection_levels()
     assert hpl_after > hpl_before, "HPL should grow during GNSS outage"
+
+
+def test_velocity_sigma_grows_during_outage(short_traj):
+    """Velocity uncertainty should increase when GNSS is unavailable."""
+    traj = short_traj
+    rng = np.random.default_rng(42)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    # Converge with GNSS for 2000 epochs
+    fi = 0
+    for imu in imus[:2000]:
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            ekf.update_gnss_velocity(fixes[fi].v)
+            fi += 1
+
+    vel_sig_before = ekf.velocity_sigma()
+
+    # Run 1000 more epochs without GNSS (outage)
+    for imu in imus[2000:3000]:
+        ekf.predict(imu, traj.dt)
+
+    vel_sig_after = ekf.velocity_sigma()
+    assert float(np.linalg.norm(vel_sig_after)) > float(np.linalg.norm(vel_sig_before)), \
+        "Velocity sigma should grow during GNSS outage"
+
+
+def test_body_velocity_property():
+    """Body velocity should correctly transform nav-frame velocity."""
+    from carcajou.mechanization import NavState
+
+    # Vehicle heading 45 deg (NE), moving at 10 m/s in that direction
+    yaw = np.pi / 4
+    R = euler_to_dcm(0.0, 0.0, yaw)
+    v_nav = np.array([10.0 / np.sqrt(2), 10.0 / np.sqrt(2), 0.0])
+
+    state = NavState(v=v_nav, R=R)
+    v_body = state.body_velocity()
+
+    # In body frame: should be purely forward (~10 m/s)
+    assert abs(v_body[0] - 10.0) < 1e-9, "Forward velocity should be 10 m/s"
+    assert abs(v_body[1]) < 1e-9, "Right velocity should be zero"
+    assert abs(v_body[2]) < 1e-9, "Down velocity should be zero"

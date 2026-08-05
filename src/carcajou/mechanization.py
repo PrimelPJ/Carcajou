@@ -61,6 +61,10 @@ class NavState:
         r, p, y = dcm_to_euler(self.R)
         return np.degrees(np.array([r, p, y]))
 
+    def body_velocity(self) -> np.ndarray:
+        """Velocity in the body (FRD) frame, ``[forward, right, down]`` in m/s."""
+        return self.R.T @ self.v
+
     def __repr__(self) -> str:
         r, p, y = dcm_to_euler(self.R)
         return (

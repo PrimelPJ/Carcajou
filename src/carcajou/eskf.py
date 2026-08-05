@@ -520,6 +520,10 @@ class Eskf:
         """One-sigma position uncertainty ``[north, east, down]`` in metres."""
         return np.sqrt(np.clip(np.diag(self.P)[0:3], 0.0, None))
 
+    def velocity_sigma(self) -> np.ndarray:
+        """One-sigma velocity uncertainty ``[north, east, down]`` in m/s."""
+        return np.sqrt(np.clip(np.diag(self.P)[3:6], 0.0, None))
+
     def protection_levels(self, integrity_risk: float = 1e-5) -> tuple[float, float]:
         """Horizontal and vertical protection levels in metres.
 
