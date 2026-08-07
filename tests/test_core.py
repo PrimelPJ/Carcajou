@@ -364,6 +364,61 @@ def test_velocity_sigma_grows_during_outage(short_traj):
         "Velocity sigma should grow during GNSS outage"
 
 
+def test_attitude_sigma_converges_with_gnss(short_traj):
+    """Attitude uncertainty should decrease as GNSS updates are applied."""
+    traj = short_traj
+    rng = np.random.default_rng(50)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    att_sig_initial = ekf.attitude_sigma()
+    assert att_sig_initial[2] > att_sig_initial[0], "Yaw prior should be wider than roll/pitch"
+
+    fi = 0
+    for imu in imus[:3000]:
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            ekf.update_gnss_velocity(fixes[fi].v)
+            fi += 1
+
+    att_sig_after = ekf.attitude_sigma()
+    # Yaw sigma should have converged from the 5-degree prior
+    assert att_sig_after[2] < att_sig_initial[2], "Yaw sigma should decrease with GNSS aiding"
+
+
+def test_bias_sigma_decreases_with_aiding(short_traj):
+    """Bias uncertainty should shrink as the filter converges with GNSS."""
+    traj = short_traj
+    rng = np.random.default_rng(51)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    sig_ba_init, sig_bg_init = ekf.bias_sigma()
+    assert sig_ba_init.shape == (3,)
+    assert sig_bg_init.shape == (3,)
+
+    fi = 0
+    for imu in imus[:3000]:
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            ekf.update_gnss_velocity(fixes[fi].v)
+            fi += 1
+
+    sig_ba_after, sig_bg_after = ekf.bias_sigma()
+    assert float(np.linalg.norm(sig_ba_after)) < float(np.linalg.norm(sig_ba_init)), \
+        "Accel bias sigma should decrease with aiding"
+    assert float(np.linalg.norm(sig_bg_after)) < float(np.linalg.norm(sig_bg_init)), \
+        "Gyro bias sigma should decrease with aiding"
+
+
 def test_body_velocity_property():
     """Body velocity should correctly transform nav-frame velocity."""
     from carcajou.mechanization import NavState

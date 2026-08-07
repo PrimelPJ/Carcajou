@@ -524,6 +524,23 @@ class Eskf:
         """One-sigma velocity uncertainty ``[north, east, down]`` in m/s."""
         return np.sqrt(np.clip(np.diag(self.P)[3:6], 0.0, None))
 
+    def attitude_sigma(self) -> np.ndarray:
+        """One-sigma attitude uncertainty ``[roll, pitch, yaw]`` in radians."""
+        return np.sqrt(np.clip(np.diag(self.P)[6:9], 0.0, None))
+
+    def bias_sigma(self) -> tuple[np.ndarray, np.ndarray]:
+        """One-sigma bias uncertainty for accelerometer and gyroscope.
+
+        Returns
+        -------
+        sigma_ba, sigma_bg : ndarray, ndarray
+            Accelerometer bias 1-sigma (m/s^2) and gyroscope bias 1-sigma
+            (rad/s), each shape ``(3,)``.
+        """
+        sigma_ba = np.sqrt(np.clip(np.diag(self.P)[9:12], 0.0, None))
+        sigma_bg = np.sqrt(np.clip(np.diag(self.P)[12:15], 0.0, None))
+        return sigma_ba, sigma_bg
+
     def protection_levels(self, integrity_risk: float = 1e-5) -> tuple[float, float]:
         """Horizontal and vertical protection levels in metres.
 
