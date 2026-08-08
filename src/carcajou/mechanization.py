@@ -65,6 +65,21 @@ class NavState:
         """Velocity in the body (FRD) frame, ``[forward, right, down]`` in m/s."""
         return self.R.T @ self.v
 
+    def distance_to(self, other: NavState, horizontal: bool = False) -> float:
+        """Euclidean distance to another state in metres.
+
+        Parameters
+        ----------
+        other : NavState
+            The state to measure distance to.
+        horizontal : bool
+            If True, compute 2D (north, east) distance only, ignoring the
+            down axis.  Default False (full 3D distance).
+        """
+        if horizontal:
+            return float(np.linalg.norm(self.p[:2] - other.p[:2]))
+        return float(np.linalg.norm(self.p - other.p))
+
     def __repr__(self) -> str:
         r, p, y = dcm_to_euler(self.R)
         return (

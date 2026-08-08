@@ -419,6 +419,23 @@ def test_bias_sigma_decreases_with_aiding(short_traj):
         "Gyro bias sigma should decrease with aiding"
 
 
+def test_distance_to_3d():
+    """distance_to should compute 3D Euclidean distance."""
+    from carcajou.mechanization import NavState
+    a = NavState(p=np.array([0.0, 0.0, 0.0]))
+    b = NavState(p=np.array([3.0, 4.0, 0.0]))
+    assert abs(a.distance_to(b) - 5.0) < 1e-12
+
+
+def test_distance_to_horizontal():
+    """distance_to(horizontal=True) should ignore the down axis."""
+    from carcajou.mechanization import NavState
+    a = NavState(p=np.array([0.0, 0.0, 0.0]))
+    b = NavState(p=np.array([3.0, 4.0, 100.0]))
+    assert abs(a.distance_to(b, horizontal=True) - 5.0) < 1e-12
+    assert a.distance_to(b, horizontal=False) > 5.0
+
+
 def test_body_velocity_property():
     """Body velocity should correctly transform nav-frame velocity."""
     from carcajou.mechanization import NavState
