@@ -528,6 +528,16 @@ class Eskf:
         """One-sigma attitude uncertainty ``[roll, pitch, yaw]`` in radians."""
         return np.sqrt(np.clip(np.diag(self.P)[6:9], 0.0, None))
 
+    def heading_sigma(self) -> float:
+        """One-sigma heading (yaw) uncertainty in degrees.
+
+        This is the single scalar the planner needs to decide whether the
+        localisation heading is trustworthy enough to act on. Yaw is the
+        limiting error for consumer MEMS during GNSS outage, so this number
+        is the one to watch.
+        """
+        return float(np.degrees(np.sqrt(max(self.P[8, 8], 0.0))))
+
     def bias_sigma(self) -> tuple[np.ndarray, np.ndarray]:
         """One-sigma bias uncertainty for accelerometer and gyroscope.
 

@@ -419,6 +419,41 @@ def test_bias_sigma_decreases_with_aiding(short_traj):
         "Gyro bias sigma should decrease with aiding"
 
 
+def test_heading_sigma_matches_attitude_yaw(short_traj):
+    """heading_sigma() should equal the yaw component of attitude_sigma() in degrees."""
+    traj = short_traj
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    # At init, heading_sigma should match the yaw prior (5 degrees)
+    hs = ekf.heading_sigma()
+    att = ekf.attitude_sigma()
+    assert abs(hs - np.degrees(att[2])) < 1e-10
+    assert abs(hs - 5.0) < 0.01, f"Expected ~5 deg heading sigma, got {hs:.2f}"
+
+
+def test_heading_sigma_decreases_with_motion(short_traj):
+    """Heading sigma should decrease with GNSS aiding during motion."""
+    traj = short_traj
+    rng = np.random.default_rng(55)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    hs_before = ekf.heading_sigma()
+    fi = 0
+    for imu in imus[:3000]:
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            ekf.update_gnss_velocity(fixes[fi].v)
+            fi += 1
+    hs_after = ekf.heading_sigma()
+    assert hs_after < hs_before, "Heading sigma should converge with GNSS aiding"
+
+
 def test_distance_to_3d():
     """distance_to should compute 3D Euclidean distance."""
     from carcajou.mechanization import NavState
