@@ -21,9 +21,11 @@ from carcajou.eskf import Eskf, EskfConfig
 from carcajou.frames import (
     LocalTangentPlane,
     dcm_to_euler,
+    dcm_to_quaternion,
     euler_to_dcm,
     exp_so3,
     log_so3,
+    quaternion_to_dcm,
     skew,
 )
 from carcajou.mechanization import Mechanizer
@@ -58,6 +60,24 @@ def test_euler_roundtrip():
         yaw = rng.uniform(-np.pi, np.pi)
         r2, p2, y2 = dcm_to_euler(euler_to_dcm(roll, pitch, yaw))
         assert np.allclose([r2, p2, y2], [roll, pitch, yaw], atol=1e-9)
+
+
+def test_quaternion_dcm_roundtrip():
+    """quaternion_to_dcm(dcm_to_quaternion(R)) should recover R."""
+    rng = np.random.default_rng(3)
+    for _ in range(50):
+        phi = rng.normal(size=3)
+        phi *= rng.uniform(0.1, 3.0) / np.linalg.norm(phi)
+        R = exp_so3(phi)
+        q = dcm_to_quaternion(R)
+        R_back = quaternion_to_dcm(q)
+        assert np.allclose(R, R_back, atol=1e-12), "DCM->quat->DCM roundtrip failed"
+
+
+def test_quaternion_to_dcm_identity():
+    """Identity quaternion [1,0,0,0] should give identity DCM."""
+    R = quaternion_to_dcm(np.array([1.0, 0.0, 0.0, 0.0]))
+    assert np.allclose(R, np.eye(3), atol=1e-15)
 
 
 def test_tangent_plane_roundtrip():

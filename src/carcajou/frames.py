@@ -99,6 +99,20 @@ def dcm_to_quaternion(R: np.ndarray) -> np.ndarray:
                          (R[1, 2] + R[2, 1]) / s, 0.25 * s])
 
 
+def quaternion_to_dcm(q: np.ndarray) -> np.ndarray:
+    """Convert a unit quaternion ``[w, x, y, z]`` to a 3x3 DCM.
+
+    Inverse of :func:`dcm_to_quaternion`.  Useful when interfacing with
+    systems that use quaternion representation (ROS, game engines).
+    """
+    w, x, y, z = q
+    return np.array([
+        [1 - 2*(y*y + z*z),  2*(x*y - z*w),      2*(x*z + y*w)],
+        [2*(x*y + z*w),      1 - 2*(x*x + z*z),   2*(y*z - x*w)],
+        [2*(x*z - y*w),      2*(y*z + x*w),        1 - 2*(x*x + y*y)],
+    ])
+
+
 def orthonormalize(R: np.ndarray) -> np.ndarray:
     """Cheap Newton step back onto SO(3): ``R (3I - R^T R) / 2``.
 
