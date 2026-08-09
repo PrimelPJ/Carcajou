@@ -491,6 +491,31 @@ def test_distance_to_horizontal():
     assert a.distance_to(b, horizontal=False) > 5.0
 
 
+def test_acceptance_rate(short_traj):
+    """acceptance_rate should reflect gate accept/reject counts."""
+    traj = short_traj
+    rng = np.random.default_rng(60)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    # Before any updates, rate is nan
+    assert np.isnan(ekf.acceptance_rate("gnss"))
+
+    fi = 0
+    for imu in imus[:2000]:
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            fi += 1
+
+    rate = ekf.acceptance_rate("gnss")
+    assert 0.0 <= rate <= 1.0
+    assert rate > 0.8, "Most GNSS updates should pass the gate with clean data"
+
+
 def test_epoch_count(short_traj):
     """epoch_count should track predict() calls."""
     traj = short_traj

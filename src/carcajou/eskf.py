@@ -519,6 +519,27 @@ class Eskf:
         """Number of predict() calls since construction."""
         return self._epoch_count
 
+    def acceptance_rate(self, source: str = "gnss") -> float:
+        """Fraction of accepted updates for a given aiding source.
+
+        Parameters
+        ----------
+        source : str
+            One of ``"gnss"``, ``"wss"``, ``"vo"``, ``"vo_rot"``,
+            ``"map_pos"``, ``"map_rot"``.
+
+        Returns
+        -------
+        float
+            Acceptance ratio in [0, 1], or ``nan`` if no updates were attempted.
+        """
+        applied = self.stats.get(f"{source}_applied", 0)
+        rejected = self.stats.get(f"{source}_rejected", 0)
+        total = applied + rejected
+        if total == 0:
+            return float("nan")
+        return applied / total
+
     def sigma(self) -> np.ndarray:
         """One-sigma marginal uncertainty for the physical error states."""
         return np.sqrt(np.clip(np.diag(self.P)[:self.n], 0.0, None))
