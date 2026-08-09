@@ -183,6 +183,17 @@ class GnssSpec:
     def R_velocity(self) -> np.ndarray:
         return np.eye(3) * self.sigma_velocity**2
 
+    def R_full(self) -> np.ndarray:
+        """Block-diagonal 6x6 measurement noise for combined position+velocity.
+
+        Stacks ``R_position()`` and ``R_velocity()`` into a single matrix,
+        convenient when a caller processes both GNSS measurements at once.
+        """
+        R = np.zeros((6, 6))
+        R[0:3, 0:3] = self.R_position()
+        R[3:6, 3:6] = self.R_velocity()
+        return R
+
 
 SPP = GnssSpec("spp", 2.5, 4.5, 0.10)  # single-point, open sky
 RTK = GnssSpec("rtk", 0.02, 0.03, 0.01)  # fixed-ambiguity RTK

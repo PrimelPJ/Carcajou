@@ -491,6 +491,16 @@ def test_distance_to_horizontal():
     assert a.distance_to(b, horizontal=False) > 5.0
 
 
+def test_gnss_r_full():
+    """R_full should be a 6x6 block diagonal of R_position and R_velocity."""
+    R = SPP.R_full()
+    assert R.shape == (6, 6)
+    assert np.allclose(R[0:3, 0:3], SPP.R_position())
+    assert np.allclose(R[3:6, 3:6], SPP.R_velocity())
+    assert np.allclose(R[0:3, 3:6], np.zeros((3, 3)))
+    assert np.allclose(R[3:6, 0:3], np.zeros((3, 3)))
+
+
 def test_arw_datasheet_units():
     """arw_deg_per_sqrt_hr should round-trip to the datasheet value."""
     import math
