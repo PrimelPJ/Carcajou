@@ -579,6 +579,16 @@ class Eskf:
         sigma_bg = np.sqrt(np.clip(np.diag(self.P)[12:15], 0.0, None))
         return sigma_ba, sigma_bg
 
+    def position_covariance(self) -> np.ndarray:
+        """Full 3x3 position error covariance in metres squared.
+
+        Unlike :meth:`position_sigma` which returns only the diagonal,
+        this returns the complete block including cross-correlations
+        between north, east, and down.  Needed for error-ellipse
+        visualisation and for computing DOP-like geometry factors.
+        """
+        return self.P[0:3, 0:3].copy()
+
     def protection_levels(self, integrity_risk: float = 1e-5) -> tuple[float, float]:
         """Horizontal and vertical protection levels in metres.
 

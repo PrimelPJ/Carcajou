@@ -491,6 +491,23 @@ def test_distance_to_horizontal():
     assert a.distance_to(b, horizontal=False) > 5.0
 
 
+def test_position_covariance(short_traj):
+    """position_covariance should return the 3x3 position block of P."""
+    traj = short_traj
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+    Pp = ekf.position_covariance()
+    assert Pp.shape == (3, 3)
+    # Should be symmetric positive definite at init
+    assert np.allclose(Pp, Pp.T)
+    assert np.all(np.linalg.eigvalsh(Pp) > 0)
+    # Diagonal should match position_sigma squared
+    assert np.allclose(np.sqrt(np.diag(Pp)), ekf.position_sigma())
+    # Should be a copy, not a view
+    Pp[0, 0] = -999.0
+    assert ekf.P[0, 0] != -999.0
+
+
 def test_acceptance_rate(short_traj):
     """acceptance_rate should reflect gate accept/reject counts."""
     traj = short_traj
