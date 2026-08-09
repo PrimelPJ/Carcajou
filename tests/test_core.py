@@ -491,6 +491,28 @@ def test_distance_to_horizontal():
     assert a.distance_to(b, horizontal=False) > 5.0
 
 
+def test_outage_result_max_drift_pct():
+    """max_drift_pct should use max_error_horizontal, not final."""
+    from carcajou.benchmark.metrics import OutageResult
+    r = OutageResult(
+        t_start=0.0, duration=60.0, distance=1000.0,
+        final_error_3d=5.0, final_error_horizontal=3.0,
+        final_error_vertical=4.0, max_error_horizontal=10.0,
+        heading_error_deg=1.0,
+    )
+    import math
+    assert math.isclose(r.drift_pct, 0.3)
+    assert math.isclose(r.max_drift_pct, 1.0)
+    # Short distance should return nan
+    r2 = OutageResult(
+        t_start=0.0, duration=1.0, distance=0.5,
+        final_error_3d=0.1, final_error_horizontal=0.1,
+        final_error_vertical=0.0, max_error_horizontal=0.2,
+        heading_error_deg=0.0,
+    )
+    assert math.isnan(r2.max_drift_pct)
+
+
 def test_gnss_r_full():
     """R_full should be a 6x6 block diagonal of R_position and R_velocity."""
     R = SPP.R_full()

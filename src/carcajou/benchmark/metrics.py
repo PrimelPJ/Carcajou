@@ -32,6 +32,20 @@ class OutageResult:
             return float("nan")
         return 100.0 * self.final_error_horizontal / self.distance
 
+    @property
+    def max_drift_pct(self) -> float:
+        """Peak horizontal error as a percentage of distance travelled.
+
+        Unlike ``drift_pct`` which uses the final error, this uses the
+        worst-case error seen during the outage. A system that drifted
+        badly mid-outage but happened to recover by the end will show a
+        low ``drift_pct`` but a high ``max_drift_pct``, which is the
+        number a safety case cares about.
+        """
+        if self.distance < 1.0:
+            return float("nan")
+        return 100.0 * self.max_error_horizontal / self.distance
+
     def summary_str(self) -> str:
         """One-line human-readable summary for logging."""
         return (
