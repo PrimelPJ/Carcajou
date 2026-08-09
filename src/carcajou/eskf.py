@@ -115,6 +115,7 @@ class Eskf:
         self._clone_R: np.ndarray | None = None
         self._clone_active = False
 
+        self._epoch_count = 0
         self._imu_buf: list[ImuSample] = []
         self._gates = {d: float(chi2.ppf(cfg.innovation_gate_p, df=d)) for d in (1, 2, 3, 6)}
         self._static: bool | None = None  # invalidated on every predict()
@@ -183,6 +184,7 @@ class Eskf:
             # that never reverts contradicts its own covariance.
             self.gm = self.gm * float(np.exp(-dt / self.cfg.gnss.tau_gm))
 
+        self._epoch_count += 1
         self._imu_buf.append(imu)
         if len(self._imu_buf) > self.cfg.zupt_window:
             self._imu_buf.pop(0)
@@ -512,6 +514,11 @@ class Eskf:
         return ok
 
     # -------------------------------------------------------------- helpers
+    @property
+    def epoch_count(self) -> int:
+        """Number of predict() calls since construction."""
+        return self._epoch_count
+
     def sigma(self) -> np.ndarray:
         """One-sigma marginal uncertainty for the physical error states."""
         return np.sqrt(np.clip(np.diag(self.P)[:self.n], 0.0, None))

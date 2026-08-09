@@ -491,6 +491,18 @@ def test_distance_to_horizontal():
     assert a.distance_to(b, horizontal=False) > 5.0
 
 
+def test_epoch_count(short_traj):
+    """epoch_count should track predict() calls."""
+    traj = short_traj
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+    assert ekf.epoch_count == 0
+    imus = perfect_imu(traj)
+    for imu in imus[:100]:
+        ekf.predict(imu, traj.dt)
+    assert ekf.epoch_count == 100
+
+
 def test_altitude_property():
     """Altitude should be the negation of the NED down component."""
     from carcajou.mechanization import NavState
