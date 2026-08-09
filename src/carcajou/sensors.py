@@ -60,6 +60,21 @@ class ImuSpec:
     sf_a: float = 0.0
     sf_g: float = 0.0
 
+    @property
+    def arw_deg_per_sqrt_hr(self) -> float:
+        """ARW in datasheet units (deg/sqrt(hr)).
+
+        Datasheets quote gyro white noise as angle random walk in
+        deg/sqrt(hr), but the filter works in rad/s/sqrt(Hz).  This
+        converts back so a printed spec table matches the datasheet.
+        """
+        return self.arw * 60.0 / DEG
+
+    @property
+    def vrw_m_per_s_per_sqrt_hr(self) -> float:
+        """VRW in datasheet units (m/s/sqrt(hr))."""
+        return self.vrw * 60.0
+
     def process_noise(self) -> np.ndarray:
         """Continuous-time process-noise PSD for ``[n_a, n_g, w_ba, w_bg]``."""
         # Gauss-Markov driving PSD that yields the specified steady-state sigma.

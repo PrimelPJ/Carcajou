@@ -29,7 +29,7 @@ from carcajou.frames import (
     skew,
 )
 from carcajou.mechanization import Mechanizer
-from carcajou.sensors import INDUSTRIAL_MEMS, SPP
+from carcajou.sensors import CONSUMER_MEMS, INDUSTRIAL_MEMS, SPP
 
 
 # --------------------------------------------------------------------- frames
@@ -489,6 +489,20 @@ def test_distance_to_horizontal():
     b = NavState(p=np.array([3.0, 4.0, 100.0]))
     assert abs(a.distance_to(b, horizontal=True) - 5.0) < 1e-12
     assert a.distance_to(b, horizontal=False) > 5.0
+
+
+def test_arw_datasheet_units():
+    """arw_deg_per_sqrt_hr should round-trip to the datasheet value."""
+    import math
+    assert math.isclose(CONSUMER_MEMS.arw_deg_per_sqrt_hr, 0.30, rel_tol=1e-6)
+    assert math.isclose(INDUSTRIAL_MEMS.arw_deg_per_sqrt_hr, 0.15, rel_tol=1e-6)
+
+
+def test_vrw_datasheet_units():
+    """vrw_m_per_s_per_sqrt_hr should round-trip to the datasheet value."""
+    import math
+    assert math.isclose(CONSUMER_MEMS.vrw_m_per_s_per_sqrt_hr, 0.10, rel_tol=1e-6)
+    assert math.isclose(INDUSTRIAL_MEMS.vrw_m_per_s_per_sqrt_hr, 0.023, rel_tol=1e-6)
 
 
 def test_position_covariance(short_traj):
