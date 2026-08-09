@@ -491,6 +491,18 @@ def test_distance_to_horizontal():
     assert a.distance_to(b, horizontal=False) > 5.0
 
 
+def test_quaternion_property():
+    """NavState.quaternion should return a unit quaternion matching the DCM."""
+    from carcajou.mechanization import NavState
+    R = euler_to_dcm(0.1, -0.2, 1.5)
+    state = NavState(R=R)
+    q = state.quaternion
+    assert q.shape == (4,)
+    assert abs(np.linalg.norm(q) - 1.0) < 1e-12
+    R_back = quaternion_to_dcm(q)
+    assert np.allclose(R, R_back, atol=1e-12)
+
+
 def test_body_velocity_property():
     """Body velocity should correctly transform nav-frame velocity."""
     from carcajou.mechanization import NavState

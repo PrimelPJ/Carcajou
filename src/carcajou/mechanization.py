@@ -25,7 +25,7 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from .frames import dcm_to_euler, earth_rate_ned, exp_so3, gravity_ned, orthonormalize, skew
+from .frames import dcm_to_euler, dcm_to_quaternion, earth_rate_ned, exp_so3, gravity_ned, orthonormalize, skew
 
 
 @dataclass
@@ -60,6 +60,11 @@ class NavState:
         """Roll, pitch, yaw in degrees."""
         r, p, y = dcm_to_euler(self.R)
         return np.degrees(np.array([r, p, y]))
+
+    @property
+    def quaternion(self) -> np.ndarray:
+        """Attitude as a unit quaternion ``[w, x, y, z]``."""
+        return dcm_to_quaternion(self.R)
 
     def body_velocity(self) -> np.ndarray:
         """Velocity in the body (FRD) frame, ``[forward, right, down]`` in m/s."""
