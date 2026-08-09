@@ -491,6 +491,15 @@ def test_distance_to_horizontal():
     assert a.distance_to(b, horizontal=False) > 5.0
 
 
+def test_altitude_property():
+    """Altitude should be the negation of the NED down component."""
+    from carcajou.mechanization import NavState
+    state = NavState(p=np.array([100.0, 200.0, -50.0]))
+    assert abs(state.altitude - 50.0) < 1e-12
+    state2 = NavState(p=np.array([0.0, 0.0, 10.0]))
+    assert abs(state2.altitude - (-10.0)) < 1e-12
+
+
 def test_quaternion_property():
     """NavState.quaternion should return a unit quaternion matching the DCM."""
     from carcajou.mechanization import NavState

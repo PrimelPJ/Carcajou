@@ -62,6 +62,15 @@ class NavState:
         return np.degrees(np.array([r, p, y]))
 
     @property
+    def altitude(self) -> float:
+        """Height above the tangent-plane origin, metres (positive up).
+
+        In NED the down axis is ``p[2]``, positive downward, so altitude
+        is its negation.
+        """
+        return float(-self.p[2])
+
+    @property
     def quaternion(self) -> np.ndarray:
         """Attitude as a unit quaternion ``[w, x, y, z]``."""
         return dcm_to_quaternion(self.R)
