@@ -518,6 +518,7 @@ def test_outage_result_max_drift_pct():
     import math
     assert math.isclose(r.drift_pct, 0.3)
     assert math.isclose(r.max_drift_pct, 1.0)
+    assert math.isclose(r.vertical_drift_pct, 0.4)  # 4.0 / 1000.0 * 100
     # Short distance should return nan
     r2 = OutageResult(
         t_start=0.0, duration=1.0, distance=0.5,

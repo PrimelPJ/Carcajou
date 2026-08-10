@@ -46,6 +46,18 @@ class OutageResult:
             return float("nan")
         return 100.0 * self.max_error_horizontal / self.distance
 
+    @property
+    def vertical_drift_pct(self) -> float:
+        """Vertical position error as a percentage of distance travelled.
+
+        Complements ``drift_pct`` (horizontal) for applications where the
+        vertical channel matters, such as tunnel grades or multi-storey
+        parking structures.
+        """
+        if self.distance < 1.0:
+            return float("nan")
+        return 100.0 * self.final_error_vertical / self.distance
+
     def summary_str(self) -> str:
         """One-line human-readable summary for logging."""
         return (
