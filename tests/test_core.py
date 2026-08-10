@@ -20,6 +20,7 @@ from carcajou.datasets.synthetic import (
 from carcajou.eskf import Eskf, EskfConfig
 from carcajou.frames import (
     LocalTangentPlane,
+    angle_between_dcm,
     dcm_to_euler,
     dcm_to_quaternion,
     euler_to_dcm,
@@ -78,6 +79,20 @@ def test_quaternion_to_dcm_identity():
     """Identity quaternion [1,0,0,0] should give identity DCM."""
     R = quaternion_to_dcm(np.array([1.0, 0.0, 0.0, 0.0]))
     assert np.allclose(R, np.eye(3), atol=1e-15)
+
+
+def test_angle_between_dcm_identity():
+    """Angle between a DCM and itself should be zero."""
+    R = euler_to_dcm(0.3, -0.1, 1.2)
+    assert abs(angle_between_dcm(R, R)) < 1e-10
+
+
+def test_angle_between_dcm_known():
+    """90-degree yaw rotation should give 90 degrees."""
+    import math
+    R1 = np.eye(3)
+    R2 = euler_to_dcm(0.0, 0.0, np.pi / 2)
+    assert math.isclose(angle_between_dcm(R1, R2), 90.0, abs_tol=1e-8)
 
 
 def test_tangent_plane_roundtrip():

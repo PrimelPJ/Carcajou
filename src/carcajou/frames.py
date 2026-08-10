@@ -113,6 +113,18 @@ def quaternion_to_dcm(q: np.ndarray) -> np.ndarray:
     ])
 
 
+def angle_between_dcm(R1: np.ndarray, R2: np.ndarray) -> float:
+    """Rotation angle between two DCMs in degrees.
+
+    Computes ``|Log(R1^T R2)|``, the geodesic distance on SO(3).
+    Useful for attitude error evaluation without extracting individual
+    Euler angles.
+    """
+    dR = R1.T @ R2
+    cos_theta = np.clip((np.trace(dR) - 1.0) * 0.5, -1.0, 1.0)
+    return float(np.degrees(np.arccos(cos_theta)))
+
+
 def orthonormalize(R: np.ndarray) -> np.ndarray:
     """Cheap Newton step back onto SO(3): ``R (3I - R^T R) / 2``.
 
