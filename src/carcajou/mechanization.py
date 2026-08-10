@@ -25,7 +25,15 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from .frames import dcm_to_euler, dcm_to_quaternion, earth_rate_ned, exp_so3, gravity_ned, orthonormalize, skew
+from .frames import (
+    dcm_to_euler,
+    dcm_to_quaternion,
+    earth_rate_ned,
+    exp_so3,
+    gravity_ned,
+    orthonormalize,
+    skew,
+)
 
 
 @dataclass
