@@ -612,6 +612,15 @@ def test_quaternion_property():
     assert np.allclose(R, R_back, atol=1e-12)
 
 
+def test_speed_3d():
+    """speed_3d should include the vertical component."""
+    from carcajou.mechanization import NavState
+    state = NavState(v=np.array([3.0, 4.0, 5.0]))
+    import math
+    assert math.isclose(state.speed, 5.0)  # horizontal only: sqrt(9+16)
+    assert math.isclose(state.speed_3d, math.sqrt(50.0))  # 3D: sqrt(9+16+25)
+
+
 def test_body_velocity_property():
     """Body velocity should correctly transform nav-frame velocity."""
     from carcajou.mechanization import NavState

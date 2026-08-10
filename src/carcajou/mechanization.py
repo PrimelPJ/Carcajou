@@ -51,6 +51,11 @@ class NavState:
         return float(np.hypot(self.v[0], self.v[1]))
 
     @property
+    def speed_3d(self) -> float:
+        """Total speed including vertical component, m/s."""
+        return float(np.linalg.norm(self.v))
+
+    @property
     def heading(self) -> float:
         """Heading (yaw) in degrees, clockwise from north."""
         _, _, yaw = dcm_to_euler(self.R)
