@@ -58,6 +58,42 @@ class OutageResult:
             return float("nan")
         return 100.0 * self.final_error_vertical / self.distance
 
+    def meets_budget(
+        self,
+        drift_pct: float = 1.0,
+        heading_deg: float = 2.0,
+        max_error_m: float | None = None,
+    ) -> bool:
+        """Check whether this outage stays within an error budget.
+
+        Parameters
+        ----------
+        drift_pct : float
+            Maximum allowed horizontal drift as a percentage of distance
+            travelled.  Default 1 % — the typical automotive target.
+        heading_deg : float
+            Maximum allowed absolute heading error in degrees.  Default
+            2 deg.
+        max_error_m : float or None
+            Optional hard cap on horizontal error in metres, regardless
+            of distance.  Useful for low-speed manoeuvres where drift-%
+            is undefined or misleading.
+
+        Returns
+        -------
+        bool
+            True if all specified budgets are met.
+        """
+        dp = self.drift_pct
+        if np.isfinite(dp) and dp > drift_pct:
+            return False
+        if abs(self.heading_error_deg) > heading_deg:
+            return False
+        if max_error_m is not None:
+            if self.final_error_horizontal > max_error_m:
+                return False
+        return True
+
     def summary_str(self) -> str:
         """One-line human-readable summary for logging."""
         return (

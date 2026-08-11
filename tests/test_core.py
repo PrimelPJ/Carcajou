@@ -725,3 +725,60 @@ def test_nees_with_true_state(short_traj):
         f"Velocity NEES {nees['velocity']:.1f} too large"
     )
     assert nees["combined"] > 0.0
+
+
+def test_meets_budget_pass():
+    """OutageResult that is within budget should pass."""
+    from carcajou.benchmark.metrics import OutageResult
+    r = OutageResult(
+        t_start=0.0, duration=60.0, distance=1000.0,
+        final_error_3d=5.0, final_error_horizontal=3.0,
+        final_error_vertical=4.0, max_error_horizontal=5.0,
+        heading_error_deg=0.5,
+    )
+    # drift = 0.3%, heading = 0.5 deg — well within defaults
+    assert r.meets_budget()
+    assert r.meets_budget(drift_pct=0.5, heading_deg=1.0)
+
+
+def test_meets_budget_drift_fail():
+    """Outage that exceeds drift budget should fail."""
+    from carcajou.benchmark.metrics import OutageResult
+    r = OutageResult(
+        t_start=0.0, duration=60.0, distance=1000.0,
+        final_error_3d=15.0, final_error_horizontal=12.0,
+        final_error_vertical=4.0, max_error_horizontal=15.0,
+        heading_error_deg=0.5,
+    )
+    # drift = 1.2%, exceeds the default 1% budget
+    assert not r.meets_budget(drift_pct=1.0)
+    # But passes a looser budget
+    assert r.meets_budget(drift_pct=2.0)
+
+
+def test_meets_budget_heading_fail():
+    """Outage that exceeds heading budget should fail."""
+    from carcajou.benchmark.metrics import OutageResult
+    r = OutageResult(
+        t_start=0.0, duration=60.0, distance=1000.0,
+        final_error_3d=5.0, final_error_horizontal=3.0,
+        final_error_vertical=4.0, max_error_horizontal=5.0,
+        heading_error_deg=3.5,
+    )
+    assert not r.meets_budget(heading_deg=2.0)
+    assert r.meets_budget(heading_deg=5.0)
+
+
+def test_meets_budget_max_error_cap():
+    """max_error_m hard cap should reject even if drift-% is OK."""
+    from carcajou.benchmark.metrics import OutageResult
+    r = OutageResult(
+        t_start=0.0, duration=60.0, distance=10000.0,
+        final_error_3d=8.0, final_error_horizontal=6.0,
+        final_error_vertical=4.0, max_error_horizontal=7.0,
+        heading_error_deg=0.5,
+    )
+    # drift = 0.06% — great — but absolute error is 6 m
+    assert r.meets_budget()  # no cap, passes
+    assert not r.meets_budget(max_error_m=5.0)  # 6 > 5
+    assert r.meets_budget(max_error_m=10.0)
