@@ -705,7 +705,7 @@ def test_nees_with_true_state(short_traj):
     ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
 
     fi = 0
-    for k, imu in enumerate(imus[:3000]):
+    for imu in imus[:3000]:
         ekf.predict(imu, traj.dt)
         while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
             ekf.update_gnss_position(fixes[fi].p)
