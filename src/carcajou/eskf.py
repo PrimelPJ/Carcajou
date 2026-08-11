@@ -589,6 +589,39 @@ class Eskf:
         """
         return self.P[0:3, 0:3].copy()
 
+    def nees(self, true_p: np.ndarray, true_v: np.ndarray) -> dict[str, float]:
+        """Normalized Estimation Error Squared for position and velocity.
+
+        NEES is the standard consistency diagnostic for a Kalman filter.
+        For a correctly-tuned filter, each NEES value is chi-square
+        distributed with degrees of freedom equal to the state dimension
+        (3 for position, 3 for velocity).  An expected value significantly
+        above the DOF signals overconfidence (covariance too small); below
+        signals conservatism (covariance too large).
+
+        Parameters
+        ----------
+        true_p : (3,) array
+            True NED position, metres.
+        true_v : (3,) array
+            True NED velocity, m/s.
+
+        Returns
+        -------
+        dict with keys ``"position"``, ``"velocity"``, ``"combined"``.
+        """
+        ep = np.asarray(true_p, float) - self.state.p
+        ev = np.asarray(true_v, float) - self.state.v
+        Pp = self.P[IDX_P, IDX_P]
+        Pv = self.P[IDX_V, IDX_V]
+        nees_p = float(ep @ np.linalg.solve(Pp, ep))
+        nees_v = float(ev @ np.linalg.solve(Pv, ev))
+        return {
+            "position": nees_p,
+            "velocity": nees_v,
+            "combined": nees_p + nees_v,
+        }
+
     def protection_levels(self, integrity_risk: float = 1e-5) -> tuple[float, float]:
         """Horizontal and vertical protection levels in metres.
 

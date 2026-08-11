@@ -692,3 +692,36 @@ def test_interpolate_midpoint():
     assert np.allclose(mid.p, [5.0, 10.0, 0.0])
     assert np.allclose(mid.v, [2.0, 3.0, 0.0])
     assert abs(mid.t - 1.0) < 1e-12
+
+
+def test_nees_with_true_state(short_traj):
+    """NEES should be bounded for a well-tuned filter with GNSS."""
+    traj = short_traj
+    rng = np.random.default_rng(70)
+    clean = perfect_imu(traj)
+    imus, _, _ = corrupt_imu(clean, INDUSTRIAL_MEMS, rng, traj.dt)
+    fixes = simulate_gnss(traj, SPP, rng)
+    cfg = EskfConfig(imu=INDUSTRIAL_MEMS, gnss=SPP)
+    ekf = Eskf(Mechanizer(traj.lat0, traj.h0), cfg, traj.initial_state())
+
+    fi = 0
+    for k, imu in enumerate(imus[:3000]):
+        ekf.predict(imu, traj.dt)
+        while fi < len(fixes) and fixes[fi].t <= imu.t + 1e-9:
+            ekf.update_gnss_position(fixes[fi].p)
+            ekf.update_gnss_velocity(fixes[fi].v)
+            fi += 1
+
+    nees = ekf.nees(traj.p[3000], traj.v[3000])
+    assert "position" in nees
+    assert "velocity" in nees
+    assert "combined" in nees
+    # For a consistent filter, NEES(pos) ~ chi2(3), so mean=3.
+    # With one sample, just check it's not absurdly large.
+    assert nees["position"] < 50.0, (
+        f"Position NEES {nees['position']:.1f} too large"
+    )
+    assert nees["velocity"] < 50.0, (
+        f"Velocity NEES {nees['velocity']:.1f} too large"
+    )
+    assert nees["combined"] > 0.0
