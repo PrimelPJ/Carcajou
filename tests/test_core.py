@@ -653,3 +653,42 @@ def test_body_velocity_property():
     assert abs(v_body[0] - 10.0) < 1e-9, "Forward velocity should be 10 m/s"
     assert abs(v_body[1]) < 1e-9, "Right velocity should be zero"
     assert abs(v_body[2]) < 1e-9, "Down velocity should be zero"
+
+
+def test_interpolate_endpoints():
+    """interpolate at alpha=0 and alpha=1 should return self and other."""
+    from carcajou.mechanization import NavState
+
+    R1 = euler_to_dcm(0.1, -0.2, 0.5)
+    R2 = euler_to_dcm(-0.1, 0.3, 1.8)
+    a = NavState(t=0.0, p=np.array([1.0, 2.0, 3.0]),
+                 v=np.array([4.0, 5.0, 6.0]), R=R1)
+    b = NavState(t=1.0, p=np.array([10.0, 20.0, 30.0]),
+                 v=np.array([7.0, 8.0, 9.0]), R=R2)
+
+    s0 = a.interpolate(b, 0.0)
+    assert np.allclose(s0.p, a.p)
+    assert np.allclose(s0.v, a.v)
+    assert np.allclose(s0.R, a.R, atol=1e-12)
+    assert abs(s0.t - a.t) < 1e-12
+
+    s1 = a.interpolate(b, 1.0)
+    assert np.allclose(s1.p, b.p)
+    assert np.allclose(s1.v, b.v)
+    assert np.allclose(s1.R, b.R, atol=1e-10)
+    assert abs(s1.t - b.t) < 1e-12
+
+
+def test_interpolate_midpoint():
+    """interpolate at alpha=0.5 should give the midpoint."""
+    from carcajou.mechanization import NavState
+
+    a = NavState(t=0.0, p=np.array([0.0, 0.0, 0.0]),
+                 v=np.array([0.0, 0.0, 0.0]))
+    b = NavState(t=2.0, p=np.array([10.0, 20.0, 0.0]),
+                 v=np.array([4.0, 6.0, 0.0]))
+
+    mid = a.interpolate(b, 0.5)
+    assert np.allclose(mid.p, [5.0, 10.0, 0.0])
+    assert np.allclose(mid.v, [2.0, 3.0, 0.0])
+    assert abs(mid.t - 1.0) < 1e-12

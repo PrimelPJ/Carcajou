@@ -31,6 +31,7 @@ from .frames import (
     earth_rate_ned,
     exp_so3,
     gravity_ned,
+    log_so3,
     orthonormalize,
     skew,
 )
@@ -91,6 +92,35 @@ class NavState:
     def body_velocity(self) -> np.ndarray:
         """Velocity in the body (FRD) frame, ``[forward, right, down]`` in m/s."""
         return self.R.T @ self.v
+
+    def interpolate(self, other: NavState, alpha: float) -> NavState:
+        """Linearly interpolate between this state and *other*.
+
+        Position and velocity are linearly interpolated.  Attitude is
+        interpolated on SO(3) via the exponential map (SLERP-equivalent),
+        which avoids the gimbal-lock and denormalisation problems that
+        plague naive quaternion lerp.  Biases and scale factors are lerped.
+
+        Parameters
+        ----------
+        other : NavState
+            The state to interpolate towards.
+        alpha : float
+            Interpolation fraction in [0, 1].  ``alpha=0`` returns a copy
+            of *self*, ``alpha=1`` returns a copy of *other*.
+        """
+        a = float(np.clip(alpha, 0.0, 1.0))
+        dR = log_so3(self.R.T @ other.R)
+        return NavState(
+            t=self.t + a * (other.t - self.t),
+            p=self.p + a * (other.p - self.p),
+            v=self.v + a * (other.v - self.v),
+            R=orthonormalize(self.R @ exp_so3(a * dR)),
+            b_a=self.b_a + a * (other.b_a - self.b_a),
+            b_g=self.b_g + a * (other.b_g - self.b_g),
+            s_a=self.s_a + a * (other.s_a - self.s_a),
+            s_g=self.s_g + a * (other.s_g - self.s_g),
+        )
 
     def distance_to(self, other: NavState, horizontal: bool = False) -> float:
         """Euclidean distance to another state in metres.
