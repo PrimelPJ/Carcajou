@@ -89,6 +89,21 @@ class NavState:
         """Attitude as a unit quaternion ``[w, x, y, z]``."""
         return dcm_to_quaternion(self.R)
 
+    @property
+    def course_over_ground(self) -> float:
+        """Course over ground in degrees, clockwise from north.
+
+        Derived from the NED velocity vector, this is the direction the
+        vehicle is actually moving — as opposed to :attr:`heading`, which
+        is the direction it is pointing.  The two differ during sideslip,
+        crosswind, or any lateral motion.  Returns NaN when the
+        horizontal speed is below 0.1 m/s (too slow for a meaningful
+        course).
+        """
+        if self.speed < 0.1:
+            return float("nan")
+        return float(np.degrees(np.arctan2(self.v[1], self.v[0])))
+
     def body_velocity(self) -> np.ndarray:
         """Velocity in the body (FRD) frame, ``[forward, right, down]`` in m/s."""
         return self.R.T @ self.v

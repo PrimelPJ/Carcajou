@@ -815,3 +815,41 @@ def test_summarize_budget_pass_rate():
         heading_budget_deg=10.0,
     )
     assert s2["budget_pass_rate"] == 1.0
+
+
+def test_course_over_ground_matches_heading_straight():
+    """COG should match heading when vehicle moves in the direction it faces."""
+    import math
+
+    from carcajou.mechanization import NavState
+
+    # Vehicle heading east (yaw=90 deg), moving east at 10 m/s
+    yaw = np.pi / 2
+    R = euler_to_dcm(0.0, 0.0, yaw)
+    v_nav = np.array([0.0, 10.0, 0.0])  # pure east in NED
+    state = NavState(v=v_nav, R=R)
+    assert math.isclose(state.course_over_ground, 90.0, abs_tol=1e-8)
+    assert math.isclose(state.heading, 90.0, abs_tol=0.1)
+
+
+def test_course_over_ground_nan_when_stopped():
+    """COG should be NaN when the vehicle is nearly stationary."""
+    import math
+
+    from carcajou.mechanization import NavState
+
+    state = NavState(v=np.array([0.01, 0.01, 0.0]))
+    assert math.isnan(state.course_over_ground)
+
+
+def test_course_over_ground_differs_from_heading_with_sideslip():
+    """COG and heading should differ when the vehicle has sideslip."""
+    from carcajou.mechanization import NavState
+
+    # Vehicle heading north (yaw=0) but moving northeast
+    R = euler_to_dcm(0.0, 0.0, 0.0)
+    v_nav = np.array([10.0, 10.0, 0.0])  # NE in NED
+    state = NavState(v=v_nav, R=R)
+    # Heading is 0 deg (north), COG is 45 deg (northeast)
+    assert abs(state.heading) < 1.0
+    assert abs(state.course_over_ground - 45.0) < 1e-8
