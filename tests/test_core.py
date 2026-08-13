@@ -782,3 +782,36 @@ def test_meets_budget_max_error_cap():
     assert r.meets_budget()  # no cap, passes
     assert not r.meets_budget(max_error_m=5.0)  # 6 > 5
     assert r.meets_budget(max_error_m=10.0)
+
+
+def test_summarize_budget_pass_rate():
+    """summarize should include budget_pass_rate and vertical_err_m_p95."""
+    from carcajou.benchmark.metrics import OutageResult, summarize
+
+    good = OutageResult(
+        t_start=0.0, duration=60.0, distance=1000.0,
+        final_error_3d=5.0, final_error_horizontal=3.0,
+        final_error_vertical=2.0, max_error_horizontal=5.0,
+        heading_error_deg=0.5,
+    )
+    bad = OutageResult(
+        t_start=60.0, duration=60.0, distance=1000.0,
+        final_error_3d=20.0, final_error_horizontal=18.0,
+        final_error_vertical=8.0, max_error_horizontal=20.0,
+        heading_error_deg=4.0,
+    )
+    s = summarize([good, bad])
+    assert s["n_windows"] == 2.0
+    # good passes default budget (0.3% drift, 0.5 deg heading)
+    # bad fails (1.8% drift, 4 deg heading)
+    assert s["budget_pass_rate"] == 0.5
+    assert "vertical_err_m_p95" in s
+    assert s["vertical_err_m_p95"] > 0.0
+
+    # All pass with a loose budget
+    s2 = summarize(
+        [good, bad],
+        drift_budget_pct=5.0,
+        heading_budget_deg=10.0,
+    )
+    assert s2["budget_pass_rate"] == 1.0

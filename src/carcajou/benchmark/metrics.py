@@ -113,15 +113,41 @@ def ate_rmse(est_p: np.ndarray, true_p: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.sum((est_p - true_p) ** 2, axis=1))))
 
 
-def summarize(results: list[OutageResult]) -> dict[str, float]:
-    """Aggregate a set of outage windows. p95 matters more than the mean here:
-    a navigation system is judged on its bad minutes, not its average one."""
+def summarize(
+    results: list[OutageResult],
+    drift_budget_pct: float = 1.0,
+    heading_budget_deg: float = 2.0,
+) -> dict[str, float]:
+    """Aggregate a set of outage windows.
+
+    p95 matters more than the mean here: a navigation system is judged
+    on its bad minutes, not its average one.  The ``budget_pass_rate``
+    field answers the integration question directly: *what fraction of
+    outages stayed within spec?*
+
+    Parameters
+    ----------
+    results : list[OutageResult]
+        Individual outage scorecards to aggregate.
+    drift_budget_pct : float
+        Drift budget passed to :meth:`OutageResult.meets_budget`.
+    heading_budget_deg : float
+        Heading budget passed to :meth:`OutageResult.meets_budget`.
+    """
     if not results:
         return {}
     drift = np.array([r.drift_pct for r in results], float)
     err = np.array([r.final_error_horizontal for r in results], float)
+    v_err = np.array([r.final_error_vertical for r in results], float)
     hdg = np.array([r.heading_error_deg for r in results], float)
     drift = drift[np.isfinite(drift)]
+    n_pass = sum(
+        r.meets_budget(
+            drift_pct=drift_budget_pct,
+            heading_deg=heading_budget_deg,
+        )
+        for r in results
+    )
     return {
         "n_windows": float(len(results)),
         "drift_pct_median": float(np.median(drift)),
@@ -133,4 +159,6 @@ def summarize(results: list[OutageResult]) -> dict[str, float]:
         "err_m_mean": float(np.mean(err)),
         "drift_pct_mean": float(np.mean(drift)) if len(drift) else float("nan"),
         "heading_err_deg_p95": float(np.percentile(np.abs(hdg), 95)),
+        "vertical_err_m_p95": float(np.percentile(np.abs(v_err), 95)),
+        "budget_pass_rate": float(n_pass / len(results)),
     }
