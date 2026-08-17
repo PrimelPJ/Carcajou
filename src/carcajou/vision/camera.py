@@ -112,7 +112,9 @@ class StereoRig:
         ok = (P_c[:, 2] > self.min_depth) & (P_c[:, 2] < self.max_depth)
         if not ok.any():
             return ok
-        uvu = self.project_stereo(P_c)
+        # Only project points that pass the depth gate to avoid dividing by
+        # zero or negative z, which produces invalid pixel coordinates.
+        uvu = self.project_stereo(P_c[ok])
         in_l = (
             (uvu[:, 0] > margin)
             & (uvu[:, 0] < self.width - margin)
@@ -120,7 +122,8 @@ class StereoRig:
             & (uvu[:, 1] < self.height - margin)
         )
         in_r = (uvu[:, 2] > margin) & (uvu[:, 2] < self.width - margin)
-        return ok & in_l & in_r
+        ok[ok] &= in_l & in_r
+        return ok
 
     def depth_sigma(self, depth: float, pixel_sigma: float) -> float:
         """One-sigma depth error implied by a disparity error, metres.
