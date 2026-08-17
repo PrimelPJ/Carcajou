@@ -853,3 +853,18 @@ def test_course_over_ground_differs_from_heading_with_sideslip():
     # Heading is 0 deg (north), COG is 45 deg (northeast)
     assert abs(state.heading) < 1.0
     assert abs(state.course_over_ground - 45.0) < 1e-8
+
+
+def test_horizontal_distance_from_origin():
+    """horizontal_distance_from_origin should ignore the down component."""
+    from carcajou.mechanization import NavState
+
+    state = NavState(p=np.array([3.0, 4.0, -100.0]))
+    assert abs(state.horizontal_distance_from_origin - 5.0) < 1e-12
+
+
+def test_noise_equivalent_angle():
+    """noise_equivalent_angle should equal arw * sqrt(dt)."""
+    dt = 0.01  # 100 Hz
+    expected = CONSUMER_MEMS.arw * np.sqrt(dt)
+    assert abs(CONSUMER_MEMS.noise_equivalent_angle(dt) - expected) < 1e-15
