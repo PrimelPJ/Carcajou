@@ -91,6 +91,17 @@ class ImuSpec:
             )
         )
 
+    def noise_equivalent_angle(self, dt: float) -> float:
+        """One-sigma angle noise per sample in radians.
+
+        For a gyro with angle random walk ``arw`` (rad/s/sqrt(Hz)),
+        the white-noise contribution to a single sample of duration
+        *dt* seconds is ``arw * sqrt(dt)``.  This is handy for sanity-
+        checking whether the attitude covariance growth matches the
+        sensor spec.
+        """
+        return self.arw * np.sqrt(dt)
+
 
 # Consumer MEMS: the phone/dashcam class part. This is the hard case, and the
 # one that makes the sensor-fusion argument, because it cannot hold 1% alone.
