@@ -101,7 +101,7 @@ class StereoRig:
         """Invert :meth:`project_stereo`. ``(N,3)`` pixels -> ``(N,3)`` metres."""
         uvu = np.atleast_2d(uvu)
         disp = uvu[:, 0] - uvu[:, 2]
-        z = self.fx * self.baseline / disp
+        z = np.where(np.abs(disp) > 1e-10, self.fx * self.baseline / disp, np.inf)
         x = (uvu[:, 0] - self.cx) * z / self.fx
         y = (uvu[:, 1] - self.cy) * z / self.fy
         return np.stack([x, y, z], axis=1)
