@@ -104,6 +104,11 @@ class NavState:
             return float("nan")
         return float(np.degrees(np.arctan2(self.v[1], self.v[0])))
 
+    @property
+    def horizontal_distance_from_origin(self) -> float:
+        """2D (north, east) distance from the tangent-plane origin, metres."""
+        return float(np.linalg.norm(self.p[:2]))
+
     def body_velocity(self) -> np.ndarray:
         """Velocity in the body (FRD) frame, ``[forward, right, down]`` in m/s."""
         return self.R.T @ self.v
