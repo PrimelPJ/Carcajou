@@ -77,6 +77,7 @@ class EskfConfig:
     vo_sigma_scale: float = 1.0  # multiplier on the front end's reported R
     lever_arm: np.ndarray | None = None  # body-frame IMU-to-GNSS antenna, m
     innovation_gate_p: float = 0.999  # chi-square gate confidence
+    map_gate_scale: float = 25.0  # wider gate multiplier for scan-to-map updates
     # Initial uncertainty
     p0_pos: float = 5.0
     p0_vel: float = 1.0
@@ -492,7 +493,7 @@ class Eskf:
         # into a rejection cascade: fix refused -> drift grows -> next fix
         # refused harder -> map lost. Absolute re-acquisition must survive
         # its own prior being wrong; that is what makes it re-acquisition.
-        ok = self._update(H, r, np.asarray(R, float), gate_scale=25.0)
+        ok = self._update(H, r, np.asarray(R, float), gate_scale=self.cfg.map_gate_scale)
         self.stats["map_pos_applied" if ok else "map_pos_rejected"] += 1
         return ok
 
@@ -509,7 +510,7 @@ class Eskf:
         r = log_so3(np.asarray(R_meas, float) @ self.state.R.T)
         H = np.zeros((3, self.n))
         H[:, IDX_TH] = np.eye(3)
-        ok = self._update(H, r, np.asarray(R, float), gate_scale=25.0)
+        ok = self._update(H, r, np.asarray(R, float), gate_scale=self.cfg.map_gate_scale)
         self.stats["map_rot_applied" if ok else "map_rot_rejected"] += 1
         return ok
 
