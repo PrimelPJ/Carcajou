@@ -21,6 +21,7 @@ __all__ = [
     "IMU_GRADES",
     "SPP",
     "RTK",
+    "SBAS",
     "URBAN",
     "SPP_GM",
     "URBAN_GM",
@@ -208,6 +209,7 @@ class GnssSpec:
 
 SPP = GnssSpec("spp", 2.5, 4.5, 0.10)  # single-point, open sky
 RTK = GnssSpec("rtk", 0.02, 0.03, 0.01)  # fixed-ambiguity RTK
+SBAS = GnssSpec("sbas", 1.0, 1.5, 0.08)  # satellite-based augmentation (WAAS/EGNOS)
 URBAN = GnssSpec("urban", 8.0, 15.0, 0.35)  # multipath-degraded urban canyon
 
 # Same total horizontal error budget as SPP/URBAN, split into a white part
@@ -215,4 +217,4 @@ URBAN = GnssSpec("urban", 8.0, 15.0, 0.35)  # multipath-degraded urban canyon
 SPP_GM = GnssSpec("spp-gm", 1.2, 2.2, 0.10, sigma_gm=2.2)
 URBAN_GM = GnssSpec("urban-gm", 3.5, 7.0, 0.35, sigma_gm=7.2)
 
-GNSS_GRADES = {s.name: s for s in (SPP, RTK, URBAN, SPP_GM, URBAN_GM)}
+GNSS_GRADES = {s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM)}
