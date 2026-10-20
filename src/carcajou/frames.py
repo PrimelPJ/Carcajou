@@ -205,3 +205,14 @@ class LocalTangentPlane:
         N = WGS84_A / np.sqrt(1.0 - WGS84_E2 * np.sin(lat) ** 2)
         h = float(p / np.cos(lat) - N)
         return lat, lon, h
+
+
+# WGS-84 ellipsoid constants for coordinate frame transformations.
+WGS84_A = 6378137.0              # semi-major axis, metres
+WGS84_F = 1.0 / 298.257223563   # flattening
+WGS84_B = WGS84_A * (1.0 - WGS84_F)  # semi-minor axis
+WGS84_E2 = 2.0 * WGS84_F - WGS84_F ** 2  # first eccentricity squared
+EARTH_RATE = 7.2921159e-5        # Earth rotation rate, rad/s
+
+# Standard gravity at sea level (exact, by definition).
+G_WGS84 = 9.7803253359          # m/s^2, equatorial gravity
