@@ -218,3 +218,33 @@ SPP_GM = GnssSpec("spp-gm", 1.2, 2.2, 0.10, sigma_gm=2.2)
 URBAN_GM = GnssSpec("urban-gm", 3.5, 7.0, 0.35, sigma_gm=7.2)
 
 GNSS_GRADES = {s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM)}
+
+
+# IMU quality tiers for quick configuration.
+# Values are approximate and representative of each grade.
+IMU_QUALITY_TIERS = {
+    "consumer": {
+        "arw": 0.3,      # deg/sqrt(hr)
+        "vrw": 0.1,      # m/s/sqrt(hr)
+        "b0_g": 10.0,    # deg/hr, gyro bias instability
+        "b0_a": 0.5,     # mg, accel bias instability
+    },
+    "industrial": {
+        "arw": 0.05,
+        "vrw": 0.02,
+        "b0_g": 1.0,
+        "b0_a": 0.1,
+    },
+    "tactical": {
+        "arw": 0.005,
+        "vrw": 0.005,
+        "b0_g": 0.1,
+        "b0_a": 0.025,
+    },
+    "navigation": {
+        "arw": 0.001,
+        "vrw": 0.001,
+        "b0_g": 0.01,
+        "b0_a": 0.01,
+    },
+}
