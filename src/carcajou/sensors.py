@@ -25,6 +25,7 @@ __all__ = [
     "URBAN",
     "SPP_GM",
     "URBAN_GM",
+    "NAVIGATION",
     "GNSS_GRADES",
 ]
 
@@ -217,7 +218,11 @@ URBAN = GnssSpec("urban", 8.0, 15.0, 0.35)  # multipath-degraded urban canyon
 SPP_GM = GnssSpec("spp-gm", 1.2, 2.2, 0.10, sigma_gm=2.2)
 URBAN_GM = GnssSpec("urban-gm", 3.5, 7.0, 0.35, sigma_gm=7.2)
 
-GNSS_GRADES = {s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM)}
+# Dual-frequency survey-grade receiver; provides an accuracy upper bound
+# comparable to the tactical IMU tier in IMU_QUALITY_TIERS.
+NAVIGATION = GnssSpec("navigation", 0.05, 0.10, 0.005, rate_hz=20.0)
+
+GNSS_GRADES = {s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM, NAVIGATION)}
 
 
 # IMU quality tiers for quick configuration.
