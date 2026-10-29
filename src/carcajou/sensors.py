@@ -16,6 +16,7 @@ __all__ = [
     "ImuSpec",
     "GnssSpec",
     "CONSUMER_MEMS",
+    "AUTOMOTIVE_MEMS",
     "INDUSTRIAL_MEMS",
     "TACTICAL",
     "IMU_GRADES",
@@ -121,6 +122,23 @@ CONSUMER_MEMS = ImuSpec(
     b0_a=15.0e-3 * 9.81,
 )
 
+# Automotive MEMS: AEC-Q100-qualified parts (e.g. Bosch SMI540, TDK ICM-42688)
+# used in ADAS and robotics platforms. Bridges the gap between consumer and
+# industrial grades in both performance and operating temperature range.
+AUTOMOTIVE_MEMS = ImuSpec(
+    name="automotive-mems",
+    arw=0.20 * DEG / 60.0,
+    vrw=0.05 / 60.0,
+    bi_g=8.0 * DEG / HR,
+    bi_a=0.15e-3 * 9.81,
+    tau_g=400.0,
+    tau_a=400.0,
+    sf_a=0.004,
+    sf_g=0.003,
+    b0_g=60.0 * DEG / HR,
+    b0_a=5.0e-3 * 9.81,
+)
+
 # Industrial / automotive MEMS, the grade Gulo-Gulo-class systems actually ship.
 INDUSTRIAL_MEMS = ImuSpec(
     name="industrial-mems",
@@ -151,7 +169,7 @@ TACTICAL = ImuSpec(
     b0_a=0.5e-3 * 9.81,
 )
 
-IMU_GRADES = {s.name: s for s in (CONSUMER_MEMS, INDUSTRIAL_MEMS, TACTICAL)}
+IMU_GRADES = {s.name: s for s in (CONSUMER_MEMS, AUTOMOTIVE_MEMS, INDUSTRIAL_MEMS, TACTICAL)}
 
 
 @dataclass(frozen=True)
