@@ -78,6 +78,16 @@ class ImuSpec:
         """VRW in datasheet units (m/s/sqrt(hr))."""
         return self.vrw * 60.0
 
+    @property
+    def bias_stability_ratio(self) -> float:
+        """Ratio of gyro to accelerometer bias instability (rad/s) / (m/s^2).
+
+        Values > 1 indicate a gyro-dominant bias profile; values < 1 indicate
+        an accel-dominant one. Useful for quickly comparing sensor grades when
+        targeting a specific outage-drift budget.
+        """
+        return self.bi_g / self.bi_a
+
     def process_noise(self) -> np.ndarray:
         """Continuous-time process-noise PSD for ``[n_a, n_g, w_ba, w_bg]``."""
         # Gauss-Markov driving PSD that yields the specified steady-state sigma.
