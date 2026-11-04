@@ -74,6 +74,7 @@ class EskfConfig:
     nhc_sigma: float = 0.15  # m/s
     use_wss: bool = False
     wss_sigma: float = 0.5  # m/s, 1-sigma wheel speed uncertainty
+    wss_dropout_timeout: float = 2.0  # seconds of silence before WSS updates are suspended
     vo_sigma_scale: float = 1.0  # multiplier on the front end's reported R
     lever_arm: np.ndarray | None = None  # body-frame IMU-to-GNSS antenna, m
     innovation_gate_p: float = 0.999  # chi-square gate confidence
