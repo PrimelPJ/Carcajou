@@ -33,6 +33,13 @@ class OutageResult:
         return 100.0 * self.final_error_horizontal / self.distance
 
     @property
+    def drift_3d_pct(self) -> float:
+        """3D position error as a percentage of distance travelled."""
+        if self.distance < 1.0:
+            return float("nan")
+        return 100.0 * self.final_error_3d / self.distance
+
+    @property
     def max_drift_pct(self) -> float:
         """Peak horizontal error as a percentage of distance travelled.
 
