@@ -262,7 +262,9 @@ NAVIGATION = GnssSpec("navigation", 0.05, 0.10, 0.005, rate_hz=20.0)
 # the transition zone before a full GNSS outage.
 DEGRADED = GnssSpec("degraded", 20.0, 35.0, 1.5, rate_hz=5.0)
 
-GNSS_GRADES = {s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM, PPP, NAVIGATION, DEGRADED)}
+GNSS_GRADES = {
+    s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM, PPP, NAVIGATION, DEGRADED)
+}
 
 
 # IMU quality tiers for quick configuration.
