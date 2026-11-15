@@ -28,6 +28,7 @@ __all__ = [
     "URBAN_GM",
     "NAVIGATION",
     "PPP",
+    "DEGRADED",
     "GNSS_GRADES",
 ]
 
@@ -256,7 +257,12 @@ PPP = GnssSpec("ppp", 0.15, 0.25, 0.04)
 # comparable to the tactical IMU tier in IMU_QUALITY_TIERS.
 NAVIGATION = GnssSpec("navigation", 0.05, 0.10, 0.005, rate_hz=20.0)
 
-GNSS_GRADES = {s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM, PPP, NAVIGATION)}
+# Degraded signal: heavy attenuation (parking structure entrance, underpass,
+# tunnel approach). Receiver still outputs a fix but accuracy collapses; models
+# the transition zone before a full GNSS outage.
+DEGRADED = GnssSpec("degraded", 20.0, 35.0, 1.5, rate_hz=5.0)
+
+GNSS_GRADES = {s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM, PPP, NAVIGATION, DEGRADED)}
 
 
 # IMU quality tiers for quick configuration.
