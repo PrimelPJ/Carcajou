@@ -63,6 +63,16 @@ class LidarSpec:
         return self.range_sigma + ranges * self.range_sigma_scale
 
 
+SHORT_RANGE = LidarSpec(
+    rate_hz=10.0,
+    max_range=20.0,
+    min_range=0.1,
+    range_sigma=0.01,
+    range_sigma_scale=0.0005,
+    max_points=3000,
+)
+
+
 @dataclass
 class Scan:
     """One LiDAR sweep in the sensor frame."""
