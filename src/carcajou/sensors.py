@@ -262,8 +262,13 @@ NAVIGATION = GnssSpec("navigation", 0.05, 0.10, 0.005, rate_hz=20.0)
 # the transition zone before a full GNSS outage.
 DEGRADED = GnssSpec("degraded", 20.0, 35.0, 1.5, rate_hz=5.0)
 
+# Suburban environment: scattered trees, low-rise buildings, occasional
+# overhead obstructions. Fills the gap between SBAS and URBAN for a typical
+# neighbourhood drive with a consumer-grade receiver.
+SUBURBAN = GnssSpec("suburban", 3.0, 5.0, 0.18)
+
 GNSS_GRADES = {
-    s.name: s for s in (SPP, RTK, SBAS, URBAN, SPP_GM, URBAN_GM, PPP, NAVIGATION, DEGRADED)
+    s.name: s for s in (SPP, RTK, SBAS, SUBURBAN, URBAN, SPP_GM, URBAN_GM, PPP, NAVIGATION, DEGRADED)
 }
 
 
