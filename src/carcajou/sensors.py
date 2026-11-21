@@ -18,6 +18,7 @@ __all__ = [
     "CONSUMER_MEMS",
     "AUTOMOTIVE_MEMS",
     "INDUSTRIAL_MEMS",
+    "MARINE_MEMS",
     "TACTICAL",
     "IMU_GRADES",
     "SPP",
@@ -166,6 +167,23 @@ INDUSTRIAL_MEMS = ImuSpec(
     b0_a=2.0e-3 * 9.81,
 )
 
+# Marine / UAV grade: vibration-isolated MEMS units found in AUVs, USVs,
+# and fixed-wing UAVs. Sits between industrial and tactical in both price
+# and performance.
+MARINE_MEMS = ImuSpec(
+    name="marine-mems",
+    arw=0.07 * DEG / 60.0,
+    vrw=0.015 / 60.0,
+    bi_g=0.8 * DEG / HR,
+    bi_a=0.025e-3 * 9.81,
+    tau_g=1200.0,
+    tau_a=1200.0,
+    sf_a=0.0008,
+    sf_g=0.0005,
+    b0_g=5.0 * DEG / HR,
+    b0_a=1.0e-3 * 9.81,
+)
+
 # Tactical grade, for the upper bound on what money buys.
 TACTICAL = ImuSpec(
     name="tactical",
@@ -181,7 +199,7 @@ TACTICAL = ImuSpec(
     b0_a=0.5e-3 * 9.81,
 )
 
-IMU_GRADES = {s.name: s for s in (CONSUMER_MEMS, AUTOMOTIVE_MEMS, INDUSTRIAL_MEMS, TACTICAL)}
+IMU_GRADES = {s.name: s for s in (CONSUMER_MEMS, AUTOMOTIVE_MEMS, INDUSTRIAL_MEMS, MARINE_MEMS, TACTICAL)}
 
 
 @dataclass(frozen=True)
